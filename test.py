@@ -3,6 +3,10 @@ import robosuite as suite
 from policies import *
 import time
 
+from voice_start import wait_for_start
+
+wait_for_start()
+
 # create environment instance
 env = suite.make(
     env_name="Stack", # replace with other tasks "NutAssembly" and "Door" (1)
