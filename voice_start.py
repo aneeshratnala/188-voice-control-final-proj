@@ -1,17 +1,15 @@
 """
-Wait for a spoken keyword before the sim runs (Vosk + sounddevice).
+Vosk voice gates for robosuite (blocking mic read on the main thread).
 
-Setup
------
-1. pip install vosk sounddevice numpy scipy  (same Python as mjpython)
-2. Unzip an English Vosk model into this folder, or set VOSK_MODEL_PATH.
+Typical flow
+------------
+1. ``wait_for_start()`` — say **start** → returns a loaded ``Model`` (reuse for step 2).
+2. Build env, reset, create policy; pass a **between_blocks** callback that renders + zero-steps.
+3. ``wait_for_move(model, between_blocks=...)`` — say **move** → then run ``policy.get_action`` / ``env.step``.
 
-Environment (optional)
-----------------------
-  VOSK_MODEL_PATH      Path to unzipped model directory
-  SOUND_DEVICE_INDEX   Integer mic index (see printed device list)
-  VOICE_INPUT_CHANNEL  0 or 1 when using stereo capture (default 0)
-  VOICE_DEBUG          1 = logs (default), 0 = quiet
+Setup: pip install vosk sounddevice numpy scipy; Vosk English model path (see VOSK_MODEL_PATH).
+
+Env vars: VOSK_MODEL_PATH, SOUND_DEVICE_INDEX, VOICE_INPUT_CHANNEL, VOICE_DEBUG (see below).
 """
 
 from __future__ import annotations
@@ -22,21 +20,18 @@ import os
 import re
 import struct
 import sys
+from collections.abc import Callable
 from math import gcd
 from pathlib import Path
-
 import numpy as np
 from scipy import signal
 
-# --- config -----------------------------------------------------------------
-
 VOSK_SAMPLE_RATE = 16_000
-KEYWORDS = frozenset({"start", "begin", "go"})
-# Seconds of audio per read (blocking, main thread — avoids callback/thread issues with mjpython)
 BLOCK_DURATION_S = 0.25
-
-# Default mic when SOUND_DEVICE_INDEX unset (None = PortAudio default device)
 DEFAULT_SOUND_DEVICE_INDEX: int | None = None
+
+KEYWORDS_OPEN = frozenset({"start"})
+KEYWORDS_MOVE = frozenset({"move"})
 
 
 def _debug() -> bool:
@@ -84,9 +79,6 @@ def _rms_peak_int16(pcm: bytes) -> tuple[float, int]:
 
 
 def _float_block_to_pcm16k(block: np.ndarray, stream_sr: int) -> bytes:
-    """
-    One capture block: float32 (frames, ch) → mono int16 little-endian @ VOSK_SAMPLE_RATE.
-    """
     x = np.asarray(block, dtype=np.float32, order="C")
     if x.ndim == 1:
         mono = x
@@ -120,22 +112,48 @@ def _float_block_to_pcm16k(block: np.ndarray, stream_sr: int) -> bytes:
     return mono.astype(np.int16, copy=False).tobytes()
 
 
-def _text_triggers(text: str) -> bool:
+def _text_matches(text: str, keywords: frozenset[str]) -> bool:
     if not text or not text.strip():
         return False
     for w in re.findall(r"[a-zA-Z']+", text.lower()):
-        if w in KEYWORDS:
+        if w in keywords:
             return True
     return False
 
 
-def wait_for_start() -> None:
-    """Block until the user says start / begin / go (final or partial transcript)."""
+def wait_for_keywords(
+    keywords: frozenset[str],
+    *,
+    heard_message: str,
+    prompt: str,
+    between_blocks: Callable[[], None] | None = None,
+    model: object | None = None,
+) -> object:
+    """
+    Block until Vosk hears one of *keywords* (final or partial).
+
+    Parameters
+    ----------
+    heard_message
+        Printed when a match fires, e.g. 'Heard "start" — opening simulation.'
+    prompt
+        Shown once before listening.
+    between_blocks
+        If set, called after each audio block (~{BLOCK_DURATION_S}s) so you can
+        e.g. ``env.render()`` and ``env.step(zeros)`` while the window is open.
+    model
+        Reuse an existing vosk ``Model`` from ``wait_for_start()``; if ``None``,
+        loads the model from disk (slower).
+
+    Returns
+    -------
+    The vosk ``Model`` instance (pass to the next ``wait_for_keywords`` / ``wait_for_move``).
+    """
     try:
         import sounddevice as sd
     except ImportError:
         print(
-            "Install sounddevice for this interpreter:\n"
+            "Install sounddevice:\n"
             f"  {sys.executable} -m pip install sounddevice",
             file=sys.stderr,
         )
@@ -144,18 +162,14 @@ def wait_for_start() -> None:
     try:
         from vosk import KaldiRecognizer, Model
     except ImportError:
-        print(
-            f"Install vosk:\n  {sys.executable} -m pip install vosk",
-            file=sys.stderr,
-        )
+        print(f"Install vosk:\n  {sys.executable} -m pip install vosk", file=sys.stderr)
         sys.exit(1)
 
     model_path = _model_dir()
     if not model_path.is_dir():
         print(
             f"No Vosk model at:\n  {model_path}\n"
-            "Download from https://alphacephei.com/vosk/models and unzip, "
-            "or set VOSK_MODEL_PATH.",
+            "https://alphacephei.com/vosk/models — unzip or set VOSK_MODEL_PATH.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -175,48 +189,45 @@ def wait_for_start() -> None:
         stream_sr = 48_000
         num_ch = 1
         info = {"name": "default", "default_samplerate": stream_sr}
-        dev_id = None
 
     native_frames = max(1024, int(round(BLOCK_DURATION_S * stream_sr)))
 
-    if dbg:
-        print(f"[voice] Model: {model_path}", flush=True)
+    if model is None:
+        model = Model(str(model_path))
+        if dbg:
+            print(f"[voice] Model: {model_path}", flush=True)
+            print("[voice] Input-capable devices:", flush=True)
+            for i, d in enumerate(sd.query_devices()):
+                if d.get("max_input_channels", 0) > 0:
+                    mark = (
+                        " *"
+                        if i == (dev_arg if dev_arg is not None else sd.default.device[0])
+                        else ""
+                    )
+                    print(f"    [{i}] {d['name']}{mark}", flush=True)
+    if dbg and model is not None:
         print(
             f"[voice] Mic: {info.get('name', '?')}  device={dev_arg!r}  "
-            f"{stream_sr} Hz  {num_ch} ch  block={native_frames} frames",
+            f"{stream_sr} Hz  {num_ch} ch  block={native_frames}",
             flush=True,
         )
-        print("[voice] Input-capable devices:", flush=True)
-        for i, d in enumerate(sd.query_devices()):
-            if d.get("max_input_channels", 0) > 0:
-                mark = (
-                    " *"
-                    if i == (dev_arg if dev_arg is not None else sd.default.device[0])
-                    else ""
-                )
-                print(f"    [{i}] {d['name']}{mark}", flush=True)
 
-    model = Model(str(model_path))
     rec = KaldiRecognizer(model, VOSK_SAMPLE_RATE)
-
+    kw_list = sorted(keywords)
     try:
-        rec.SetGrammar(json.dumps(sorted(KEYWORDS)))
+        rec.SetGrammar(json.dumps(kw_list))
         if dbg:
-            print("[voice] Grammar: on (start | begin | go)", flush=True)
+            print(f"[voice] Grammar: on {kw_list}", flush=True)
     except Exception as e:
         if dbg:
             print(f"[voice] Grammar: off ({e})", flush=True)
 
-    print(
-        'Say "start", "begin", or "go" — then pause half a second.',
-        flush=True,
-    )
+    print(prompt, flush=True)
 
     n_block = 0
     last_partial = ""
 
     try:
-        # No callback: blocking read() on the main thread (reliable with mjpython).
         with sd.InputStream(
             device=dev_arg,
             channels=num_ch,
@@ -230,37 +241,67 @@ def wait_for_start() -> None:
                     print("[voice] overflow (dropped samples)", flush=True)
 
                 pcm = _float_block_to_pcm16k(block, stream_sr)
-                if len(pcm) < 2:
-                    continue
+                if len(pcm) >= 2:
+                    n_block += 1
+                    if dbg and n_block % 20 == 0:
+                        rms, peak = _rms_peak_int16(pcm)
+                        print(
+                            f"[voice] →Vosk  rms={rms:.0f}  peak={peak}",
+                            flush=True,
+                        )
 
-                n_block += 1
-                if dbg and n_block % 20 == 0:
-                    rms, peak = _rms_peak_int16(pcm)
-                    print(
-                        f"[voice] →Vosk  rms={rms:.0f}  peak={peak}  "
-                        f"(typical speech: rms hundreds–few k, peak < 30k)",
-                        flush=True,
-                    )
+                    if rec.AcceptWaveform(pcm):
+                        text = (json.loads(rec.Result()).get("text") or "").strip()
+                        if dbg and text:
+                            print(f"[voice] final: {text!r}", flush=True)
+                        if _text_matches(text, keywords):
+                            print(heard_message, flush=True)
+                            return model
+                    else:
+                        partial = (
+                            json.loads(rec.PartialResult()).get("partial") or ""
+                        ).strip()
+                        if partial and partial != last_partial and dbg:
+                            print(f"[voice] partial: {partial!r}", flush=True)
+                            last_partial = partial
+                        if _text_matches(partial, keywords):
+                            print(heard_message, flush=True)
+                            return model
 
-                if rec.AcceptWaveform(pcm):
-                    text = (json.loads(rec.Result()).get("text") or "").strip()
-                    if dbg and text:
-                        print(f"[voice] final: {text!r}", flush=True)
-                    if _text_triggers(text):
-                        print(f'Heard "{text}" — starting.', flush=True)
-                        return
-                else:
-                    partial = (json.loads(rec.PartialResult()).get("partial") or "").strip()
-                    if partial and partial != last_partial and dbg:
-                        print(f"[voice] partial: {partial!r}", flush=True)
-                        last_partial = partial
-                    if _text_triggers(partial):
-                        print(f'Heard "{partial}" (partial) — starting.', flush=True)
-                        return
+                if between_blocks is not None:
+                    between_blocks()
 
     except KeyboardInterrupt:
         print("\n[voice] cancelled.", flush=True)
         raise
 
 
-__all__ = ["wait_for_start"]
+def wait_for_start() -> object:
+    """Say **start** to proceed (loads Vosk model; returns it for ``wait_for_move``)."""
+    return wait_for_keywords(
+        KEYWORDS_OPEN,
+        heard_message='Heard "start" — opening simulation.',
+        prompt='Say "start" to open the simulation, then wait for the window.',
+        between_blocks=None,
+        model=None,
+    )
+
+
+def wait_for_move(model: object, *, between_blocks: Callable[[], None]) -> None:
+    """Say **move** while *between_blocks* keeps the viewer alive (render + zero-step)."""
+    wait_for_keywords(
+        KEYWORDS_MOVE,
+        heard_message='Heard "move" — running the policy.',
+        prompt='Say "move" to begin the robot motion.',
+        between_blocks=between_blocks,
+        model=model,
+    )
+
+
+__all__ = [
+    "KEYWORDS_MOVE",
+    "KEYWORDS_OPEN",
+    "wait_for_keywords",
+    "wait_for_move",
+    "wait_for_start",
+]

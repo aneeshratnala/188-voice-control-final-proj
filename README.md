@@ -6,7 +6,7 @@
 mjpython test.py
 ```
 
-`test.py` calls `wait_for_start()` from `voice_start.py` first (spoken **start**, **begin**, or **go**), then runs robosuite.
+`test.py` uses two voice steps: say **start** to open the sim (robot idle), then **move** to run the stack policy. See `voice_start.py` (`wait_for_start`, `wait_for_move`).
 
 ## Voice setup
 
