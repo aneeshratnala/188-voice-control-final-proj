@@ -1,8 +1,17 @@
 """
-Block until the user says "start" (Vosk + microphone).
+Wait for a spoken keyword before the sim runs (Vosk + sounddevice).
 
-Set VOSK_MODEL_PATH to the unzipped model directory, or place
-vosk-model-small-en-us-0.15 next to this file (see README).
+Setup
+-----
+1. pip install vosk sounddevice numpy scipy  (same Python as mjpython)
+2. Unzip an English Vosk model into this folder, or set VOSK_MODEL_PATH.
+
+Environment (optional)
+----------------------
+  VOSK_MODEL_PATH      Path to unzipped model directory
+  SOUND_DEVICE_INDEX   Integer mic index (see printed device list)
+  VOICE_INPUT_CHANNEL  0 or 1 when using stereo capture (default 0)
+  VOICE_DEBUG          1 = logs (default), 0 = quiet
 """
 
 from __future__ import annotations
@@ -10,56 +19,46 @@ from __future__ import annotations
 import json
 import math
 import os
-import queue
 import re
 import struct
 import sys
+from math import gcd
+from pathlib import Path
 
 import numpy as np
+from scipy import signal
 
-SAMPLE_RATE = 16000
+# --- config -----------------------------------------------------------------
 
-# When SOUND_DEVICE_INDEX is not set in the environment:
-#   None  = use the system default input (PortAudio default)
-#   0, 1, … = use that index from the list printed under [voice] Input devices
-DEFAULT_SOUND_DEVICE_INDEX: int | None = 0
+VOSK_SAMPLE_RATE = 16_000
+KEYWORDS = frozenset({"start", "begin", "go"})
+# Seconds of audio per read (blocking, main thread — avoids callback/thread issues with mjpython)
+BLOCK_DURATION_S = 0.25
 
-# Words that begin the run (restricted grammar helps the small model a lot)
-_START_TOKENS = frozenset({"start", "begin", "go"})
-
-
-def _rms_int16(data: bytes) -> float:
-    n = len(data) // 2
-    if n == 0:
-        return 0.0
-    samples = struct.unpack_from("<%dh" % n, data)
-    return math.sqrt(sum(s * s for s in samples) / n)
+# Default mic when SOUND_DEVICE_INDEX unset (None = PortAudio default device)
+DEFAULT_SOUND_DEVICE_INDEX: int | None = None
 
 
-def _voice_debug() -> bool:
-    return os.environ.get("VOICE_DEBUG", "1").strip().lower() not in ("0", "false", "no", "off")
+def _debug() -> bool:
+    return os.environ.get("VOICE_DEBUG", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
-def _require_sounddevice():
-    """Import sounddevice using the same interpreter that runs this script."""
-    try:
-        import sounddevice as sd
-    except ImportError:
-        exe = sys.executable
-        print(
-            "Missing package: sounddevice (microphone input).\n"
-            f"Install it for THIS interpreter:\n  {exe} -m pip install sounddevice\n"
-            "If you use mjpython, run:\n  mjpython -m pip install sounddevice",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    return sd
+def _model_dir() -> Path:
+    env = os.environ.get("VOSK_MODEL_PATH", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    here = Path(__file__).resolve().parent
+    return here / "vosk-model-small-en-us-0.15"
 
 
-def _input_device():
-    """Mic index: SOUND_DEVICE_INDEX env overrides DEFAULT_SOUND_DEVICE_INDEX."""
-    raw = os.environ.get("SOUND_DEVICE_INDEX")
-    if raw is None or raw == "":
+def _device_index() -> int | None:
+    raw = os.environ.get("SOUND_DEVICE_INDEX", "").strip()
+    if not raw:
         return DEFAULT_SOUND_DEVICE_INDEX
     try:
         return int(raw)
@@ -67,161 +66,201 @@ def _input_device():
         return DEFAULT_SOUND_DEVICE_INDEX
 
 
-def _model_dir() -> str:
-    return os.environ.get(
-        "VOSK_MODEL_PATH",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "vosk-model-small-en-us-0.15"),
-    )
-
-
-def _input_device_id(sd, device: int | None) -> int | None:
-    if device is not None:
-        return device
-    idx = sd.default.device[0]
-    return idx
-
-
-def _stream_channels(sd, device_id: int | None) -> int:
-    """Many macOS inputs expose stereo; mono can read as silence — prefer 2 ch when available."""
+def _input_channel() -> int:
     try:
-        did = device_id if device_id is not None else sd.default.device[0]
-        info = sd.query_devices(did, "input")
-        if int(info.get("max_input_channels", 1)) >= 2:
-            return 2
-    except Exception:
-        pass
-    return 1
+        return max(0, int(os.environ.get("VOICE_INPUT_CHANNEL", "0")))
+    except ValueError:
+        return 0
 
 
-def _indata_to_mono_pcm16_bytes(indata) -> bytes:
-    """Convert sounddevice callback ndarray to little-endian int16 PCM bytes."""
-    x = np.asarray(indata, dtype=np.int16)
-    if x.ndim == 2:
-        ch = int(os.environ.get("VOICE_INPUT_CHANNEL", "0"))
-        ch = max(0, min(ch, x.shape[1] - 1))
-        x = x[:, ch]
-    return np.ascontiguousarray(x, dtype=np.int16).tobytes()
+def _rms_peak_int16(pcm: bytes) -> tuple[float, int]:
+    n = len(pcm) // 2
+    if n == 0:
+        return 0.0, 0
+    samples = struct.unpack_from("<%dh" % n, pcm)
+    rms = math.sqrt(sum(s * s for s in samples) / n)
+    peak = max(abs(s) for s in samples)
+    return rms, peak
 
 
-def _utterance_means_start(text: str) -> bool:
-    """True if the transcript is one of our start commands (whole words)."""
+def _float_block_to_pcm16k(block: np.ndarray, stream_sr: int) -> bytes:
+    """
+    One capture block: float32 (frames, ch) → mono int16 little-endian @ VOSK_SAMPLE_RATE.
+    """
+    x = np.asarray(block, dtype=np.float32, order="C")
+    if x.ndim == 1:
+        mono = x
+    else:
+        ch = min(_input_channel(), x.shape[1] - 1)
+        mono = np.ascontiguousarray(x[:, ch], dtype=np.float32)
+
+    np.nan_to_num(mono, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+    peak = float(np.max(np.abs(mono))) if mono.size else 0.0
+    if peak < 1e-8:
+        n_out = max(
+            1,
+            int(round(len(mono) * VOSK_SAMPLE_RATE / stream_sr)),
+        )
+        return (np.zeros(n_out, dtype=np.int16)).tobytes()
+
+    if peak > 1.0 + 1e-5:
+        mono = mono / peak
+
+    if stream_sr != VOSK_SAMPLE_RATE:
+        g = gcd(int(stream_sr), VOSK_SAMPLE_RATE)
+        up = VOSK_SAMPLE_RATE // g
+        down = int(stream_sr) // g
+        mono = signal.resample_poly(mono, up, down).astype(np.float32, copy=False)
+        p2 = float(np.max(np.abs(mono))) if mono.size else 0.0
+        if p2 > 1.0 + 1e-5:
+            mono = mono / p2
+
+    mono = np.clip(mono * (32767.0 * 0.9), -32768.0, 32767.0)
+    return mono.astype(np.int16, copy=False).tobytes()
+
+
+def _text_triggers(text: str) -> bool:
     if not text or not text.strip():
         return False
     for w in re.findall(r"[a-zA-Z']+", text.lower()):
-        if w in _START_TOKENS:
+        if w in KEYWORDS:
             return True
     return False
 
 
 def wait_for_start() -> None:
-    """Block until a final utterance contains the word 'start' (whole word)."""
-    sd = _require_sounddevice()
+    """Block until the user says start / begin / go (final or partial transcript)."""
+    try:
+        import sounddevice as sd
+    except ImportError:
+        print(
+            "Install sounddevice for this interpreter:\n"
+            f"  {sys.executable} -m pip install sounddevice",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     try:
         from vosk import KaldiRecognizer, Model
     except ImportError:
-        exe = sys.executable
         print(
-            "Missing package: vosk.\n"
-            f"  {exe} -m pip install vosk",
+            f"Install vosk:\n  {sys.executable} -m pip install vosk",
             file=sys.stderr,
         )
         sys.exit(1)
 
     model_path = _model_dir()
-    if not os.path.isdir(model_path):
-        print(f"ERROR: Vosk model not found at:\n  {model_path}", file=sys.stderr)
+    if not model_path.is_dir():
         print(
-            "Download e.g. vosk-model-small-en-us-0.15 from "
-            "https://alphacephei.com/vosk/models, unzip it here, or set VOSK_MODEL_PATH.",
+            f"No Vosk model at:\n  {model_path}\n"
+            "Download from https://alphacephei.com/vosk/models and unzip, "
+            "or set VOSK_MODEL_PATH.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    model = Model(model_path)
-    rec = KaldiRecognizer(model, SAMPLE_RATE)
-    # Restrict search to a tiny vocabulary — drastically reduces garbage like "by" on small models
-    try:
-        rec.SetGrammar(json.dumps(sorted(_START_TOKENS)))
-    except Exception as e:
-        print(f"[voice] warning: SetGrammar failed ({e}); recognition may be noisier.", flush=True)
+    dbg = _debug()
+    dev_arg = _device_index()
 
-    device = _input_device()
-    dev_id = _input_device_id(sd, device)
-    stream_ch = _stream_channels(sd, dev_id)
     try:
-        if dev_id is not None:
-            info = sd.query_devices(dev_id, "input")
-            print(
-                f"Microphone: {info['name']} "
-                f"(device={dev_id}, channels={stream_ch}, default_sr={info.get('default_samplerate')})"
-            )
+        dev_id = dev_arg if dev_arg is not None else sd.default.device[0]
+        info = sd.query_devices(dev_id, "input")
+        stream_sr = int(round(float(info["default_samplerate"])))
+        if not (8_000 <= stream_sr <= 192_000):
+            stream_sr = 48_000
+        max_ch = int(info.get("max_input_channels", 1))
+        num_ch = 2 if max_ch >= 2 else 1
     except Exception:
-        print("Microphone: (default input device)")
+        stream_sr = 48_000
+        num_ch = 1
+        info = {"name": "default", "default_samplerate": stream_sr}
+        dev_id = None
 
-    debug = _voice_debug()
-    if debug:
-        default_in = sd.default.device[0]
-        print("[voice] Input devices (index = SOUND_DEVICE_INDEX):", flush=True)
-        for i, d in enumerate(sd.query_devices()):
-            if d["max_input_channels"] > 0:
-                mark = " <-- default" if i == (dev_id if dev_id is not None else default_in) else ""
-                print(f"  [{i}] {d['name']} (in_ch={d['max_input_channels']}){mark}", flush=True)
-    if debug:
+    native_frames = max(1024, int(round(BLOCK_DURATION_S * stream_sr)))
+
+    if dbg:
+        print(f"[voice] Model: {model_path}", flush=True)
         print(
-            '[voice] Debug on (set VOICE_DEBUG=0 to silence). '
-            f'Vocabulary: {", ".join(sorted(_START_TOKENS))}. '
-            'Say one of these, then pause briefly.',
+            f"[voice] Mic: {info.get('name', '?')}  device={dev_arg!r}  "
+            f"{stream_sr} Hz  {num_ch} ch  block={native_frames} frames",
             flush=True,
         )
-    else:
-        print('Say "start" (or "begin" / "go") to begin the simulation.')
+        print("[voice] Input-capable devices:", flush=True)
+        for i, d in enumerate(sd.query_devices()):
+            if d.get("max_input_channels", 0) > 0:
+                mark = (
+                    " *"
+                    if i == (dev_arg if dev_arg is not None else sd.default.device[0])
+                    else ""
+                )
+                print(f"    [{i}] {d['name']}{mark}", flush=True)
 
-    audio_q: queue.Queue[bytes] = queue.Queue()
+    model = Model(str(model_path))
+    rec = KaldiRecognizer(model, VOSK_SAMPLE_RATE)
 
-    def callback(indata, frames, time_info, status) -> None:  # type: ignore[no-untyped-def]
-        if status:
-            print(status, file=sys.stderr)
-        audio_q.put(_indata_to_mono_pcm16_bytes(indata))
+    try:
+        rec.SetGrammar(json.dumps(sorted(KEYWORDS)))
+        if dbg:
+            print("[voice] Grammar: on (start | begin | go)", flush=True)
+    except Exception as e:
+        if dbg:
+            print(f"[voice] Grammar: off ({e})", flush=True)
 
+    print(
+        'Say "start", "begin", or "go" — then pause half a second.',
+        flush=True,
+    )
+
+    n_block = 0
     last_partial = ""
-    chunk_i = 0
 
-    with sd.RawInputStream(
-        device=device,
-        samplerate=SAMPLE_RATE,
-        blocksize=4000,
-        dtype="int16",
-        channels=stream_ch,
-        callback=callback,
-    ):
-        while True:
-            data = audio_q.get()
-            chunk_i += 1
-            if debug and chunk_i % 20 == 0:
-                rms = _rms_int16(data)
-                print(f"[voice] audio rms={rms:.0f} (~0=silent, >500=speech likely)", flush=True)
+    try:
+        # No callback: blocking read() on the main thread (reliable with mjpython).
+        with sd.InputStream(
+            device=dev_arg,
+            channels=num_ch,
+            samplerate=stream_sr,
+            dtype="float32",
+            latency="high",
+        ) as stream:
+            while True:
+                block, overflowed = stream.read(native_frames)
+                if overflowed and dbg:
+                    print("[voice] overflow (dropped samples)", flush=True)
 
-            if rec.AcceptWaveform(data):
-                result = json.loads(rec.Result())
-                text = (result.get("text") or "").strip()
-                if debug:
-                    print(f'[voice] final transcript: {text!r}', flush=True)
-                if _utterance_means_start(text):
-                    print(f'Heard "{text}" — starting.')
-                    return
-                if debug and text:
+                pcm = _float_block_to_pcm16k(block, stream_sr)
+                if len(pcm) < 2:
+                    continue
+
+                n_block += 1
+                if dbg and n_block % 20 == 0:
+                    rms, peak = _rms_peak_int16(pcm)
                     print(
-                        '[voice] no match (say: start, begin, or go).',
+                        f"[voice] →Vosk  rms={rms:.0f}  peak={peak}  "
+                        f"(typical speech: rms hundreds–few k, peak < 30k)",
                         flush=True,
                     )
-            else:
-                partial = json.loads(rec.PartialResult())
-                ptxt = (partial.get("partial") or "").strip()
-                if debug and ptxt and ptxt != last_partial:
-                    print(f"[voice] partial: {ptxt!r}", flush=True)
-                    last_partial = ptxt
-                # With grammar, partial often locks to the right word before final
-                if ptxt and _utterance_means_start(ptxt):
-                    print(f'Heard "{ptxt}" (partial) — starting.')
-                    return
+
+                if rec.AcceptWaveform(pcm):
+                    text = (json.loads(rec.Result()).get("text") or "").strip()
+                    if dbg and text:
+                        print(f"[voice] final: {text!r}", flush=True)
+                    if _text_triggers(text):
+                        print(f'Heard "{text}" — starting.', flush=True)
+                        return
+                else:
+                    partial = (json.loads(rec.PartialResult()).get("partial") or "").strip()
+                    if partial and partial != last_partial and dbg:
+                        print(f"[voice] partial: {partial!r}", flush=True)
+                        last_partial = partial
+                    if _text_triggers(partial):
+                        print(f'Heard "{partial}" (partial) — starting.', flush=True)
+                        return
+
+    except KeyboardInterrupt:
+        print("\n[voice] cancelled.", flush=True)
+        raise
+
+
+__all__ = ["wait_for_start"]

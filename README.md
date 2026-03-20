@@ -1,30 +1,33 @@
 # 188-voice-control-final-proj
 
-## Voice: say START before the run
-
-1. `pip install vosk sounddevice`
-2. Download a Vosk English model (e.g. [vosk-model-small-en-us-0.15](https://alphacephei.com/vosk/models)), unzip it, and either:
-   - Put the folder `vosk-model-small-en-us-0.15` in this project directory, or
-   - Set `VOSK_MODEL_PATH` to the unzipped model path.
-
-Then run `mjpython test.py` — the script waits until it hears **start**, **begin**, or **go** (restricted vocabulary so the small Vosk model doesn’t guess random words). For better accuracy, use a larger model (e.g. `vosk-model-en-us-0.22`) via `VOSK_MODEL_PATH`.
-
-Install deps with the **same interpreter** you use to run `test.py` (Conda `mjpython` and system `python3` do not share packages):
+## Run
 
 ```bash
-# If you run: mjpython test.py
-mjpython -m pip install -r requirements.txt
-
-# If you run: python3 test.py
-python3 -m pip install -r requirements.txt
+mjpython test.py
 ```
 
-To see which Python you are using: `python3 -c "import sys; print(sys.executable)"` (or replace `python3` with `mjpython`).
+`test.py` calls `wait_for_start()` from `voice_start.py` first (spoken **start**, **begin**, or **go**), then runs robosuite.
 
-On macOS, allow the microphone for **Terminal** or **Cursor** under **System Settings → Privacy & Security → Microphone**. Set the default input under **Sound → Input** (e.g. MacBook microphone).
+## Voice setup
 
-To force a specific input: set `DEFAULT_SOUND_DEVICE_INDEX` at the top of `voice_start.py` (e.g. `0` for the first device in the debug list), or run `SOUND_DEVICE_INDEX=0 mjpython test.py` (env overrides the default).
+Install into the **same** Python as `mjpython`:
 
-While waiting for **start**, the script prints partial/final transcripts and occasional **audio rms** (mic level). Say “start” clearly, then **pause briefly** so Vosk can finalize. Set `VOICE_DEBUG=0` to turn that logging off.
+```bash
+mjpython -m pip install -r requirements.txt
+```
 
-If **audio rms stays ~0** while you talk, the wrong input may be selected: use the printed device list and set `SOUND_DEVICE_INDEX` to your MacBook mic. On some Macs, stereo capture is required; the code opens 2 channels when available. If still silent, try `VOICE_INPUT_CHANNEL=1`.
+Download an English Vosk model from [alphacephei.com/vosk/models](https://alphacephei.com/vosk/models), unzip **`vosk-model-small-en-us-0.15`** next to `voice_start.py`, or set **`VOSK_MODEL_PATH`** to the model folder.
+
+Optional env vars and behavior are documented in the **module docstring** at the top of `voice_start.py`.
+
+### If recognition is bad
+
+- Prefer a **larger** model (e.g. `vosk-model-en-us-0.22`) via `VOSK_MODEL_PATH`.
+- **`SetGrammar` missing** (`vosk_recognizer_set_grm … symbol not found`): reinstall vosk in that env: `mjpython -m pip install --force-reinstall vosk`.
+- macOS: allow the microphone for the app that runs `mjpython` (**Privacy & Security → Microphone**).
+
+## Code layout
+
+- `voice_start.py` — Vosk + blocking mic read (no callback queue), resample with **scipy.signal.resample_poly** to 16 kHz for Vosk.
+- `policies.py` — task policies.
+- `test.py` — env + policy loop.
