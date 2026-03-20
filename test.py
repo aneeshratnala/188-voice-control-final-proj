@@ -5,7 +5,7 @@ import time
 
 # create environment instance
 env = suite.make(
-    env_name="NutAssembly", # replace with other tasks "NutAssembly" and "Door"
+    env_name="Stack", # replace with other tasks "NutAssembly" and "Door" (1)
     robots="Panda",  
     has_renderer=True,
     has_offscreen_renderer=False,
@@ -16,7 +16,7 @@ env = suite.make(
 # reset the environment
 for _ in range(5):
     obs = env.reset()
-    policy = NutAssemblyPolicy(obs)
+    policy = StackPolicy(obs)   ## CHANGE NAME HERE (2)
     
     while True:
         action = policy.get_action(obs)
