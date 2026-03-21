@@ -237,10 +237,32 @@
       border-radius: 12px;
     }
 
+    .media-with-caption {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .media-with-caption .media-placeholder {
+      margin-top: 0;
+    }
+
+    .media-caption {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+      text-align: left;
+    }
+
     .media-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .media-row + .media-with-caption {
       margin-top: 2rem;
     }
 
@@ -393,15 +415,24 @@
       <p>The system supports three distinct modes of operation: an autonomous block-stacking sequence, a voice-gated grab-hover-place pipeline where the user guides the robot through each phase, and an incremental teleoperation mode where spoken directional commands jog the end-effector in small steps.</p>
 
       <div class="media-row">
-        <div class="media-placeholder">
-          <img src="website_assets/placeTerminal.png" alt="Place terminal">
+        <div class="media-with-caption">
+          <div class="media-placeholder">
+            <img src="website_assets/placeTerminal.png" alt="Place terminal">
+          </div>
+          <p class="media-caption">Monitoring speech-to-text with Vosk</p>
         </div>
-        <div class="media-placeholder">
-          <img src="website_assets/nutAssemblyGif.gif" alt="Incremental teleop mode">
+        <div class="media-with-caption">
+          <div class="media-placeholder">
+            <img src="website_assets/nutAssemblyGif.gif" alt="Incremental teleop mode">
+          </div>
+          <p class="media-caption">The grab-hover-place workflow for segmented motion, correspond to the left speech-to-text</p>
         </div>
       </div>
-      <div class="media-placeholder">
-        <img src="website_assets/BlockStack.png" alt="Block stacking task">
+      <div class="media-with-caption">
+        <div class="media-placeholder">
+          <img src="website_assets/BlockStack.png" alt="Block stacking task">
+        </div>
+        <p class="media-caption">Multi-cube stacking</p>
       </div>
     </div>
   </section>
