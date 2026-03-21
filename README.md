@@ -1,6 +1,6 @@
 # Voice-Controlled Robot Arm (CS 188 Final Project)
 
-**Berkeley CS 188**
+**UCLA CS 188**
 
 This project integrates **offline speech recognition (Vosk)** with **Robosuite** manipulation tasks running in **MuJoCo**. A microphone captures spoken commands; audio is resampled to 16 kHz and decoded with a small English Vosk model and a **grammar-restricted vocabulary**. Recognized keywords drive either **full-task policies** (e.g. `stack`, `assemble`), **segmented** grasp–hover–place phases, or **incremental** world-frame jog bursts. A **PID controller** tracks waypoints and end-effector motion at the simulation control rate (20 Hz in our scripts).
 
