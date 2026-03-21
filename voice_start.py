@@ -5,7 +5,8 @@ Typical flow
 ------------
 1. ``wait_for_start()`` — say **start** → returns a loaded ``Model`` (reuse for step 2).
 2. Build env, reset, create policy; pass a **between_blocks** callback that renders + zero-steps.
-3. ``wait_for_stack_or_grab`` — **stack** (one-shot) or **grab** (then **hover**, **place**).
+3. ``wait_for_stack_grab_or_incremental`` — **stack**, **grab** (then **hover**, **place**), or
+   jog words (**up** … **close**) for end-effector incremental control.
 
 Setup: pip install vosk sounddevice numpy scipy; Vosk English model path (see VOSK_MODEL_PATH).
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import queue
 import re
 import struct
 import sys
@@ -34,6 +36,10 @@ DEFAULT_SOUND_DEVICE_INDEX: int | None = None
 
 KEYWORDS_OPEN = frozenset({"start"})
 KEYWORDS_STACK_OR_GRAB = frozenset({"stack", "grab"})
+KEYWORDS_INCREMENTAL = frozenset(
+    {"up", "down", "left", "right", "forward", "back", "open", "close"}
+)
+KEYWORDS_STACK_GRAB_INCREMENTAL = KEYWORDS_STACK_OR_GRAB | KEYWORDS_INCREMENTAL
 KEYWORDS_HOVER = frozenset({"hover"})
 KEYWORDS_PLACE = frozenset({"place"})
 KEYWORDS_STOP = frozenset({"stop"})
@@ -347,6 +353,29 @@ def wait_for_stack_or_grab(model: object, *, between_blocks: Callable[[], None])
     return cmd
 
 
+def wait_for_stack_grab_or_incremental(
+    model: object, *, between_blocks: Callable[[], None]
+) -> str:
+    """
+    Say **stack**, **grab**, or any incremental teleop word (**up** … **close**).
+
+    Returns ``\"stack\"``, ``\"grab\"``, or the matched incremental keyword.
+    """
+    _, cmd = wait_for_keywords(
+        KEYWORDS_STACK_GRAB_INCREMENTAL,
+        heard_message=None,
+        prompt=(
+            'Say "stack" (full stack), "grab" (grab → hover → place), or a jog command: '
+            '"up", "down", "left", "right", "forward", "back", "open", "close".'
+            + _STOP_HINT
+        ),
+        between_blocks=between_blocks,
+        model=model,
+        return_matched_keyword=True,
+    )
+    return cmd
+
+
 def wait_for_hover(model: object, *, between_blocks: Callable[[], None]) -> None:
     """Say **hover** to move from post-grasp hold to above the green cube."""
     wait_for_keywords(
@@ -472,16 +501,141 @@ class StopMicMonitor:
                 time.sleep(0.3)
 
 
+class IncrementalMicMonitor:
+    """
+    Background listener for incremental jog words plus **stop** (exits the process).
+
+    Use while the main thread steps ``IncrementalTeleopPolicy``; call ``drain_commands()``
+    each cycle to apply new words, and ``check_stop()`` on the main thread so **stop**
+    actually terminates the process. Do not use the main-thread mic at the same time.
+    """
+
+    def __init__(self, model: object) -> None:
+        self._model = model
+        self._q: queue.Queue[str] = queue.Queue()
+        self._listen = threading.Event()
+        self._shutdown = threading.Event()
+        self._heard_stop = threading.Event()
+        self._th: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._th = threading.Thread(target=self._loop, daemon=True)
+        self._th.start()
+
+    def pause(self) -> None:
+        self._listen.clear()
+
+    def resume(self) -> None:
+        if not self._shutdown.is_set():
+            self._listen.set()
+
+    def drain_commands(self) -> list[str]:
+        out: list[str] = []
+        while True:
+            try:
+                out.append(self._q.get_nowait())
+            except queue.Empty:
+                break
+        return out
+
+    def check_stop(self) -> None:
+        if self._heard_stop.is_set():
+            print('Heard "stop" — ending episode and exiting.', flush=True)
+            sys.exit(0)
+
+    def close(self) -> None:
+        self._shutdown.set()
+        self._listen.set()
+        if self._th is not None and self._th.is_alive():
+            self._th.join(timeout=3.0)
+
+    def _loop(self) -> None:
+        try:
+            import sounddevice as sd
+            from vosk import KaldiRecognizer
+        except ImportError:
+            return
+
+        kw = KEYWORDS_INCREMENTAL | KEYWORDS_STOP
+        kw_list = sorted(kw)
+
+        while not self._shutdown.is_set():
+            if not self._listen.wait(timeout=0.15):
+                continue
+            if self._shutdown.is_set():
+                break
+
+            dev_arg = _device_index()
+            try:
+                dev_id = dev_arg if dev_arg is not None else sd.default.device[0]
+                info = sd.query_devices(dev_id, "input")
+                stream_sr = int(round(float(info["default_samplerate"])))
+                if not (8_000 <= stream_sr <= 192_000):
+                    stream_sr = 48_000
+                max_ch = int(info.get("max_input_channels", 1))
+                num_ch = 2 if max_ch >= 2 else 1
+            except Exception:
+                stream_sr = 48_000
+                num_ch = 1
+
+            native_frames = max(1024, int(round(BLOCK_DURATION_S * stream_sr)))
+            rec = KaldiRecognizer(self._model, VOSK_SAMPLE_RATE)
+            try:
+                rec.SetGrammar(json.dumps(kw_list))
+            except Exception:
+                pass
+
+            try:
+                with sd.InputStream(
+                    device=dev_arg,
+                    channels=num_ch,
+                    samplerate=stream_sr,
+                    dtype="float32",
+                    latency="high",
+                ) as stream:
+                    while self._listen.is_set() and not self._shutdown.is_set():
+                        block, _ = stream.read(native_frames)
+                        pcm = _float_block_to_pcm16k(block, stream_sr)
+                        if len(pcm) < 2:
+                            continue
+                        if rec.AcceptWaveform(pcm):
+                            text = (json.loads(rec.Result()).get("text") or "").strip()
+                            matched = _first_matched_keyword(text, kw)
+                            if matched is not None:
+                                if matched == "stop":
+                                    self._heard_stop.set()
+                                    return
+                                self._q.put(matched)
+                        else:
+                            partial = (
+                                json.loads(rec.PartialResult()).get("partial") or ""
+                            ).strip()
+                            matched = _first_matched_keyword(partial, kw)
+                            if matched is not None:
+                                if matched == "stop":
+                                    self._heard_stop.set()
+                                    return
+                                self._q.put(matched)
+            except Exception as e:
+                if _debug():
+                    print(f"[voice] incremental monitor: {e}", flush=True)
+                time.sleep(0.3)
+
+
 __all__ = [
+    "IncrementalMicMonitor",
     "KEYWORDS_HOVER",
+    "KEYWORDS_INCREMENTAL",
     "KEYWORDS_OPEN",
     "KEYWORDS_PLACE",
+    "KEYWORDS_STACK_GRAB_INCREMENTAL",
     "KEYWORDS_STACK_OR_GRAB",
     "KEYWORDS_STOP",
     "StopMicMonitor",
     "wait_for_keywords",
     "wait_for_hover",
     "wait_for_place",
+    "wait_for_stack_grab_or_incremental",
     "wait_for_stack_or_grab",
     "wait_for_start",
 ]

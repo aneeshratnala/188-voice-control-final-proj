@@ -195,6 +195,100 @@ class StackPolicy(object):
 
         return action
 
+
+class IncrementalTeleopPolicy(object):
+    """
+    Voice-driven small moves in the **end-effector frame**, plus gripper.
+
+    Keyword mapping (from ``robot0_eef_quat_site`` columns ``ex, ey, ez``): **forward** / **back**
+    = +``ey`` / −``ey``; **up** / **down** = −``ez`` / +``ez``; **left** / **right** = −``ex`` / +``ex``.
+    Each spatial command applies a short burst of clipped delta position; **open** / **close**
+    only actuate the gripper.
+    """
+
+    def __init__(
+        self,
+        _obs,
+        *,
+        delta_per_step: float = 0.048,
+        spatial_steps: int = 26,
+        grip_steps: int = 15,
+    ):
+        self.delta_per_step = float(delta_per_step)
+        self.spatial_steps = int(spatial_steps)
+        self.grip_steps = int(grip_steps)
+        self._pos_clip = 0.14
+        self._spatial_cmd: str | None = None
+        self._pos_steps = 0
+        self._grip_pulse_steps = 0
+        self._grip_pulse_cmd = -1.0
+        self._gripper_hold = -1.0
+
+    def set_command(self, cmd: str) -> None:
+        """Queue one burst for a recognized incremental keyword."""
+        c = cmd.lower().strip()
+        spatial = {"up", "down", "left", "right", "forward", "back"}
+        if c in spatial:
+            self._spatial_cmd = c
+            self._pos_steps = self.spatial_steps
+            return
+        if c == "open":
+            self._spatial_cmd = None
+            self._pos_steps = 0
+            self._grip_pulse_cmd = -1.0
+            self._grip_pulse_steps = self.grip_steps
+            return
+        if c == "close":
+            self._spatial_cmd = None
+            self._pos_steps = 0
+            self._grip_pulse_cmd = 1.0
+            self._grip_pulse_steps = self.grip_steps
+            return
+
+    def get_action(self, obs):
+        action = np.zeros(7)
+        eef_quat = obs.get("robot0_eef_quat_site")
+        if eef_quat is not None and np.linalg.norm(eef_quat) > 1e-6:
+            R = T.quat2mat(eef_quat)
+            ex, ey, ez = R[:, 0], R[:, 1], R[:, 2]
+            dirs = {
+                "up": -ez,
+                "down": ez,
+                "right": ex,
+                "left": -ex,
+                "forward": ey,
+                "back": -ey,
+            }
+        else:
+            dirs = {
+                "up": np.array([-1.0, 0.0, 0.0]),
+                "down": np.array([1.0, 0.0, 0.0]),
+                "right": np.array([0.0, -1.0, 0.0]),
+                "left": np.array([0.0, 1.0, 0.0]),
+                "forward": np.array([0.0, 0.0, 1.0]),
+                "back": np.array([0.0, 0.0, -1.0]),
+            }
+
+        if self._pos_steps > 0 and self._spatial_cmd is not None:
+            d = dirs.get(self._spatial_cmd)
+            if d is not None:
+                delta = np.asarray(d, dtype=np.float64).reshape(3) * self.delta_per_step
+                c = self._pos_clip
+                action[:3] = np.clip(delta, -c, c)
+            self._pos_steps -= 1
+            if self._pos_steps <= 0:
+                self._spatial_cmd = None
+
+        if self._grip_pulse_steps > 0:
+            action[6] = self._grip_pulse_cmd
+            self._grip_pulse_steps -= 1
+            self._gripper_hold = self._grip_pulse_cmd
+        else:
+            action[6] = self._gripper_hold
+
+        return action
+
+
 class NutAssemblyPolicy(object):
     """
     Policy for grabbing the nut handle.
