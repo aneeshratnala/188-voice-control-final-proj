@@ -3,648 +3,1025 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice-Controlled Robot Simulation</title>
+  <title>Voice-Controlled Robot Arm — CS 188 Final Project</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+
     :root {
-      --bg: #0b0b0c;
-      --surface: #131314;
-      --surface-alt: #19191b;
-      --border: #2a2a2d;
-      --text: #ebebed;
-      --text-muted: #8e8e92;
-      --accent: #b8b8bd;
-      --accent-dim: #5c5c61;
-      --accent-glow: rgba(200, 200, 208, 0.07);
-      --green: #7d9a84;
-      --orange: #a8946e;
-      --red: #b89090;
+      --bg:          #080b12;
+      --surface:     #0e1220;
+      --surface-2:   #141829;
+      --border:      #1e2438;
+      --border-hi:   #2e3a5e;
+      --text:        #e4e8f5;
+      --text-muted:  #7a85a0;
+      --blue:        #4f8ef7;
+      --blue-dim:    #2a4d96;
+      --blue-glow:   rgba(79,142,247,0.10);
+      --purple:      #a78bfa;
+      --purple-glow: rgba(167,139,250,0.10);
+      --green:       #34d399;
+      --green-glow:  rgba(52,211,153,0.10);
+      --orange:      #fb923c;
+      --orange-glow: rgba(251,146,60,0.10);
+      --yellow:      #fbbf24;
     }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.7;
+      line-height: 1.75;
       overflow-x: hidden;
     }
 
-    .hero {
-      position: relative;
-      min-height: 0;
+    /* ── NAV ───────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
       display: flex;
       align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 2rem 1.5rem;
-      background: radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.035) 0%, transparent 55%);
+      justify-content: space-between;
+      padding: 0.8rem 2.5rem;
+      background: rgba(8,11,18,0.85);
+      backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-weight: 800;
+      font-size: 0.95rem;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .nav-logo span { color: var(--blue); }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    @media (max-width: 680px) { .nav-links { display: none; } }
+
+    /* ── HERO ──────────────────────────────── */
+    .hero {
+      position: relative;
+      padding: 7rem 2rem 5rem;
+      text-align: center;
+      overflow: hidden;
     }
 
     .hero::before {
       content: '';
       position: absolute;
       inset: 0;
-      background: url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 30h60M30 0v60' stroke='%23ffffff' stroke-width='0.3' opacity='0.04'/%3E%3C/svg%3E");
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(79,142,247,0.14) 0%, transparent 65%),
+        radial-gradient(ellipse 50% 40% at 80% 50%, rgba(167,139,250,0.07) 0%, transparent 60%);
       pointer-events: none;
     }
 
-    .hero-content { position: relative; max-width: 800px; }
+    /* subtle grid */
+    .hero::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(var(--border) 1px, transparent 1px),
+                        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: 0.25;
+      pointer-events: none;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 100%);
+    }
 
-    .hero-badge {
-      display: inline-block;
+    .hero-inner { position: relative; max-width: 860px; margin: 0 auto; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
       padding: 0.35rem 1rem;
       border-radius: 999px;
-      background: var(--accent-glow);
-      border: 1px solid var(--accent-dim);
-      color: var(--accent);
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
+      background: var(--blue-glow);
+      border: 1px solid var(--blue-dim);
+      color: var(--blue);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 1rem;
+      margin-bottom: 1.6rem;
+    }
+
+    .badge::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 6px var(--blue);
     }
 
     .hero h1 {
-      font-size: clamp(2.2rem, 5vw, 3.8rem);
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -0.03em;
-      margin-bottom: 1.2rem;
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      margin-bottom: 1.4rem;
     }
 
-    .hero h1 span { color: var(--accent); }
+    .hero h1 .grad {
+      background: linear-gradient(135deg, #4f8ef7 0%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
 
-    .hero p {
-      font-size: 1.15rem;
+    .hero-sub {
+      font-size: 1.1rem;
       color: var(--text-muted);
-      max-width: 600px;
-      margin: 0 auto;
+      max-width: 620px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.75;
     }
 
-    .hero-content > p + p { margin-top: 1rem; }
+    .hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      justify-content: center;
+    }
 
-    .hero-list {
-      text-align: left;
-      max-width: 520px;
-      margin: 0.65rem auto 0;
-      padding-left: 1.35rem;
-      font-size: 1.05rem;
+    .pill {
+      padding: 0.4rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-hi);
+      background: var(--surface);
+      font-size: 0.82rem;
+      font-weight: 500;
       color: var(--text-muted);
-      line-height: 1.7;
     }
 
-    .hero-list + p { margin-top: 1.15rem; }
-
-    section .hero-list {
-      margin-left: 0;
-      margin-right: 0;
-      max-width: 38rem;
-    }
-
-    section .media-placeholder.video + p {
-      margin-top: 2rem;
-    }
-
+    /* ── LAYOUT ────────────────────────────── */
     .container {
-      max-width: 1080px;
+      max-width: 1100px;
       margin: 0 auto;
       padding: 0 2rem;
     }
 
     section {
-      padding: 5rem 0;
+      padding: 5.5rem 0;
       border-bottom: 1px solid var(--border);
     }
 
     section:last-of-type { border-bottom: none; }
 
-    .section-label {
-      font-size: 0.75rem;
+    .sec-label {
+      font-size: 0.72rem;
       font-weight: 700;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 0.6rem;
+      color: var(--blue);
+      margin-bottom: 0.5rem;
     }
 
     h2 {
       font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 1.2rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin-bottom: 1rem;
     }
 
-    h3 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin-bottom: 0.6rem;
+    h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem; }
+
+    p + p { margin-top: 0.9rem; }
+
+    .lead { font-size: 1.05rem; color: var(--text-muted); line-height: 1.8; }
+
+    /* ── MEDIA ─────────────────────────────── */
+    .media-wrap {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+      margin-top: 2rem;
     }
 
-    p + p { margin-top: 1rem; }
+    .media-wrap video,
+    .media-wrap img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
 
-    .lead { font-size: 1.05rem; color: var(--text-muted); }
+    .media-wrap.tall { min-height: 420px; position: relative; }
+    .media-wrap.tall video {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      background: #040608;
+    }
 
-    .grid-2 {
+    .media-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
+      gap: 1.25rem;
       margin-top: 2rem;
     }
 
-    .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-top: 2rem;
-    }
+    @media (max-width: 700px) { .media-grid { grid-template-columns: 1fr; } }
 
-    @media (max-width: 768px) {
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    }
+    /* ── GRID CARDS ────────────────────────── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 1.25rem; margin-top: 2rem; }
+    @media (max-width: 820px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 600px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.8rem;
-      transition: border-color 0.2s;
+      border-radius: 14px;
+      padding: 1.75rem;
+      transition: border-color 0.2s, transform 0.2s;
     }
 
-    .card:hover { border-color: var(--accent-dim); }
+    .card:hover { border-color: var(--border-hi); transform: translateY(-2px); }
 
     .card-icon {
-      width: 42px;
-      height: 42px;
+      width: 44px; height: 44px;
       border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.3rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.35rem;
       margin-bottom: 1rem;
-      background: var(--accent-glow);
-      border: 1px solid var(--accent-dim);
     }
 
-    .media-placeholder {
-      width: 100%;
-      min-height: 280px;
-      border-radius: 12px;
-      border: 2px dashed var(--border);
-      background: var(--surface);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-      margin-top: 2rem;
-      position: relative;
-      overflow: hidden;
-    }
+    .icon-blue   { background: var(--blue-glow);   border: 1px solid var(--blue-dim); }
+    .icon-purple { background: var(--purple-glow);  border: 1px solid #5b4e8a; }
+    .icon-green  { background: var(--green-glow);   border: 1px solid #1d6b52; }
+    .icon-orange { background: var(--orange-glow);  border: 1px solid #7a4518; }
 
-    .media-placeholder.video { min-height: 380px; }
-
-    .media-placeholder svg {
-      width: 48px;
-      height: 48px;
-      stroke: var(--text-muted);
-      fill: none;
-      stroke-width: 1.5;
-      margin-bottom: 0.6rem;
-      opacity: 0.5;
-    }
-
-    .media-placeholder span { opacity: 0.7; }
-
-    .media-placeholder img {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 12px;
-    }
-
-    .media-placeholder video {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #080809;
-      border-radius: 12px;
-    }
-
-    .media-row {
+    /* ── STAT CARDS ────────────────────────── */
+    .stat-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-      margin-top: 2rem;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.25rem;
+      margin-top: 2.5rem;
     }
 
-    @media (max-width: 768px) {
-      .media-row { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 820px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
 
-    .arch-diagram {
+    .stat-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2.5rem;
+      border-radius: 14px;
+      padding: 1.5rem 1.25rem;
+      text-align: center;
+    }
+
+    .stat-num {
+      font-size: 2.6rem;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 0.3rem;
+    }
+
+    .stat-num.blue   { color: var(--blue); }
+    .stat-num.purple { color: var(--purple); }
+    .stat-num.green  { color: var(--green); }
+    .stat-num.orange { color: var(--orange); }
+
+    .stat-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; }
+
+    /* ── PIPELINE FLOW ─────────────────────── */
+    .pipeline {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 2.5rem 2rem;
       margin-top: 2rem;
       overflow-x: auto;
     }
 
-    .arch-flow {
+    .pipeline-flow {
       display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-width: 640px;
+    }
+
+    .pipe-node {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: center;
       gap: 0.5rem;
-      flex-wrap: wrap;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85rem;
+      position: relative;
     }
 
-    .arch-node {
-      padding: 0.7rem 1.2rem;
-      border-radius: 8px;
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      white-space: nowrap;
+    .pipe-node:not(:last-child)::after {
+      content: '→';
+      position: absolute;
+      right: -0.65rem;
+      top: 50%;
+      transform: translateY(-90%);
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      z-index: 2;
     }
 
-    .arch-node.highlight {
-      border-color: var(--accent-dim);
-      background: var(--accent-glow);
-      color: var(--accent);
-      font-weight: 600;
-    }
-
-    .arch-arrow { color: var(--text-muted); font-size: 1.2rem; }
-
-    .challenge-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+    .pipe-icon {
+      width: 52px; height: 52px;
       border-radius: 12px;
-      padding: 2rem;
-      margin-top: 1.5rem;
-      border-left: 3px solid var(--accent-dim);
-    }
-
-    .challenge-card h3 { color: var(--accent); }
-
-    .challenge-card.resolved { border-left-color: var(--accent); }
-    .challenge-card.resolved h3 { color: var(--text); }
-
-    .tech-badge {
-      display: inline-block;
-      padding: 0.3rem 0.75rem;
-      border-radius: 6px;
-      background: var(--surface-alt);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
       border: 1px solid var(--border);
-      font-size: 0.8rem;
-      font-weight: 500;
-      margin: 0.25rem;
+      background: var(--surface-2);
     }
 
-    .tech-list { margin-top: 1.5rem; }
+    .pipe-node.hi .pipe-icon {
+      background: var(--blue-glow);
+      border-color: var(--blue-dim);
+    }
 
+    .pipe-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-align: center;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .pipe-sub {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.3;
+    }
+
+    /* ── METHODS STEPS ─────────────────────── */
+    .steps { margin-top: 2.5rem; display: flex; flex-direction: column; gap: 0; }
+
+    .step {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 1.5rem;
+      position: relative;
+      padding-bottom: 2.5rem;
+    }
+
+    .step:last-child { padding-bottom: 0; }
+
+    .step::before {
+      content: '';
+      position: absolute;
+      left: 27px;
+      top: 56px;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--border-hi), transparent);
+    }
+
+    .step:last-child::before { display: none; }
+
+    .step-num {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem;
+      font-weight: 900;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step-num.s1 { background: var(--blue-glow);   border: 1px solid var(--blue-dim);   color: var(--blue); }
+    .step-num.s2 { background: var(--purple-glow);  border: 1px solid #5b4e8a;           color: var(--purple); }
+    .step-num.s3 { background: var(--green-glow);   border: 1px solid #1d6b52;           color: var(--green); }
+
+    .step-body { padding-top: 0.65rem; }
+
+    .step-body h3 { margin-bottom: 0.7rem; }
+
+    /* ── KEYWORD GRID ──────────────────────── */
     .keyword-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
       gap: 0.75rem;
-      margin-top: 1.2rem;
+      margin-top: 1.5rem;
     }
 
-    .keyword {
+    .kw {
       text-align: center;
-      padding: 0.6rem;
-      border-radius: 8px;
-      background: var(--surface-alt);
+      padding: 0.75rem 0.5rem;
+      border-radius: 10px;
+      background: var(--surface);
       border: 1px solid var(--border);
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85rem;
+      transition: border-color 0.15s;
+      cursor: default;
     }
 
-    .keyword small {
+    .kw:hover { border-color: var(--border-hi); }
+
+    .kw code {
       display: block;
-      color: var(--text-muted);
-      font-family: 'Inter', sans-serif;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--blue);
+      margin-bottom: 0.25rem;
+    }
+
+    .kw small {
       font-size: 0.7rem;
-      margin-top: 0.2rem;
+      color: var(--text-muted);
+      display: block;
     }
 
-    .team-section {
-      text-align: center;
-      padding: 4rem 0;
+    .kw.autonomous code { color: var(--green); }
+    .kw.segmented  code { color: var(--purple); }
+    .kw.teleop     code { color: var(--blue); }
+    .kw.sys        code { color: var(--orange); }
+
+    .kw-legend {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+      font-size: 0.8rem;
     }
 
+    .kw-legend span { display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted); }
+    .kw-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* ── CHALLENGE CARDS ───────────────────── */
+    .challenge {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 2rem;
+      margin-top: 1.5rem;
+      border-left: 3px solid var(--orange);
+      transition: border-color 0.2s;
+    }
+
+    .challenge h3 { color: var(--orange); }
+
+    .challenge.win {
+      border-left-color: var(--green);
+    }
+
+    .challenge.win h3 { color: var(--green); }
+
+    /* ── TECH BADGES ───────────────────────── */
+    .tech-badge {
+      display: inline-block;
+      padding: 0.28rem 0.7rem;
+      border-radius: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin: 0.2rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .tech-badge.blue   { border-color: var(--blue-dim);  color: var(--blue); }
+    .tech-badge.purple { border-color: #5b4e8a;           color: var(--purple); }
+    .tech-badge.green  { border-color: #1d6b52;           color: var(--green); }
+
+    /* ── RESULT CARDS ──────────────────────── */
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .result-card-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result-card-header h3 { margin: 0; }
+
+    .result-card-body {
+      padding: 1.25rem 1.5rem;
+    }
+
+    .result-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.8rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .result-time.green { background: var(--green-glow); border: 1px solid #1d6b52; color: var(--green); }
+    .result-time.blue  { background: var(--blue-glow);  border: 1px solid var(--blue-dim); color: var(--blue); }
+
+    /* ── PID TABLE ─────────────────────────── */
+    .pid-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .pid-table th {
+      text-align: left;
+      padding: 0.65rem 1rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .pid-table td {
+      padding: 0.65rem 1rem;
+      border: 1px solid var(--border);
+    }
+
+    .pid-table tr:hover td { background: var(--surface-2); }
+
+    .pid-table .val {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--blue);
+    }
+
+    /* ── FUTURE CARDS ──────────────────────── */
+    .future-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.75rem;
+      border-top: 2px solid var(--purple);
+      transition: transform 0.2s;
+    }
+
+    .future-card:hover { transform: translateY(-3px); }
+    .future-card h3 { color: var(--purple); margin-bottom: 0.6rem; }
+
+    /* ── CONTRIB ───────────────────────────── */
+    .contrib-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 600px) { .contrib-grid { grid-template-columns: 1fr; } }
+
+    .contrib-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.75rem;
+    }
+
+    .contrib-name {
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+
+    .contrib-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+
+    .contrib-item::before {
+      content: '▹';
+      color: var(--blue);
+      flex-shrink: 0;
+      margin-top: 0.05rem;
+    }
+
+    /* ── FOOTER ────────────────────────────── */
     footer {
       text-align: center;
-      padding: 2rem;
+      padding: 2.5rem 1rem;
       color: var(--text-muted);
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       border-top: 1px solid var(--border);
     }
+
+    footer strong { color: var(--text); }
   </style>
 </head>
 <body>
 
-  <!-- Hero -->
-  <header class="hero">
-    <div class="hero-content">
-      <div class="hero-badge">CS 188 Final Project</div>
-      <h1>Voice-Controlled <span>Robot</span></h1>
-      <p>A voice-driven teleoperation system that lets users control a simulated Panda robot arm through natural speech commands, powered by offline speech recognition and real-time physics simulation.</p>
+<!-- ── NAV ── -->
+<nav>
+  <div class="nav-logo">Voice<span>Robot</span></div>
+  <ul class="nav-links">
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#methods">Methods</a></li>
+    <li><a href="#eval">Results</a></li>
+    <li><a href="#discussion">Discussion</a></li>
+    <li><a href="#contrib">Team</a></li>
+  </ul>
+</nav>
+
+<!-- ── HERO ── -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="badge">CS 188 &mdash; Final Project</div>
+    <h1>A Fully <span class="grad">Voice-Controlled</span><br>Robot Arm</h1>
+    <p class="hero-sub">We built a robot arm that listens. Using offline speech recognition, a custom PID controller, and Robosuite's physics engine, every movement is triggered by a spoken word &mdash; no keyboard required.</p>
+    <div class="hero-pills">
+      <span class="pill">🎙️ Vosk Offline ASR</span>
+      <span class="pill">🤖 Robosuite + MuJoCo</span>
+      <span class="pill">📐 PID Control</span>
+      <span class="pill">📦 Multi-Cube Stacking</span>
+      <span class="pill">🔩 Nut Assembly</span>
     </div>
-  </header>
+  </div>
+</header>
 
-  <!-- Demo Video -->
-  <section>
-    <div class="container">
-      <div class="section-label"></div>
-      <h2>Demo: See our voice control in action</h2>
+<!-- ── DEMO ── -->
+<section id="demo">
+  <div class="container">
+    <div class="sec-label">Demo</div>
+    <h2>See It In Action</h2>
+    <p class="lead">Watch the complete pipeline live: a user speaks commands into a microphone, Vosk transcribes them, and the Panda robot arm moves inside a MuJoCo simulation in real time.</p>
 
-      <div class="media-placeholder video">
-        <video src="website_assets/DEMO_VIDEO.mov" controls playsinline preload="metadata" title="Voice-controlled robot demo recording"></video>
-      </div>
-      <p>We have two main environments:</p>
-      <ol class="hero-list">
-        <li>Multi-cube stacking</li>
-        <li>Nuts and pegs</li>
-      </ol>
-      <p>Each environment supports three main motion types:</p>
-      <ol class="hero-list">
-        <li>Fully autonomous motion</li>
-        <li>Segmented autonomous motion</li>
-        <li>Incremental control</li>
-      </ol>
+    <div class="media-wrap tall">
+      <video src="website_assets/DEMO_VIDEO.mov" controls playsinline preload="metadata"></video>
     </div>
-  </section>
 
-  <!-- Overview -->
-  <section>
-    <div class="container">
-      <div class="section-label">Overview</div>
-      <h2>What We Built</h2>
-      <p>This project is a fully voice-controlled robot manipulation system built on top of <strong>Robosuite</strong> and <strong>MuJoCo</strong>. Instead of using a keyboard, mouse, or gamepad, the user speaks commands into a microphone and the robot responds in real time inside a physics simulation.</p>
-      <p>The system supports three distinct modes of operation: an autonomous block-stacking sequence, a voice-gated grab-hover-place pipeline where the user guides the robot through each phase, and an incremental teleoperation mode where spoken directional commands jog the end-effector in small steps.</p>
-
-      <div class="media-row">
-        <div class="media-placeholder">
-          <img src="website_assets/BlockStack.png" alt="Block stacking task">
-        </div>
-        <div class="media-placeholder">
-          <img src="website_assets/nutAssemblyGif.gif" alt="Incremental teleop mode">
-        </div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-num blue">3</div>
+        <div class="stat-label">Cubes stacked on top of each other</div>
       </div>
-    </div>
-  </section>
-
-  <!-- Architecture -->
-  <section>
-    <div class="container">
-      <div class="section-label">Architecture</div>
-      <h2>System Design</h2>
-      <p class="lead">The pipeline connects a microphone to a robot through four stages: audio capture, speech recognition, command dispatch, and physics-based control.</p>
-
-      <div class="arch-diagram">
-        <div class="arch-flow">
-          <div class="arch-node">Microphone</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node">SoundDevice</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node">Resample to 16 kHz</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node highlight">Vosk ASR</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node">Keyword</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node highlight">Policy Dispatch</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node">PID Controller</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node">7D Action</div>
-          <div class="arch-arrow">&rarr;</div>
-          <div class="arch-node highlight">Robosuite / MuJoCo</div>
-        </div>
+      <div class="stat-card">
+        <div class="stat-num green">30s</div>
+        <div class="stat-label">Time to complete cube stacking</div>
       </div>
-
-      <div class="grid-2" style="margin-top: 2.5rem;">
-        <div>
-          <h3>Voice Pipeline</h3>
-          <p>Audio is captured through <strong>SoundDevice</strong>, resampled from the device's native sample rate to 16 kHz using SciPy's polyphase resampling, then fed into a <strong>Vosk</strong> recognizer configured with a restricted grammar of command keywords. This grammar constraint dramatically improves recognition accuracy by limiting the search space to only valid commands.</p>
-        </div>
-        <div>
-          <h3>Control Pipeline</h3>
-          <p>Recognized keywords are dispatched to the appropriate policy. Each policy computes 7-dimensional actions: three delta-position components, three axis-angle rotation components, and a gripper command. A PID controller (Kp=10, Ki=0.1, Kd=5) converts target positions into smooth delta commands that the Robosuite environment executes at 20 Hz.</p>
-        </div>
+      <div class="stat-card">
+        <div class="stat-num purple">51s</div>
+        <div class="stat-label">Time to complete nut assembly</div>
       </div>
-
-      <div class="media-placeholder" style="margin-top: 2rem;">
-        <!-- Replace with: <img src="your-architecture-diagram.png" alt="Architecture diagram"> -->
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-        <span>Image &mdash; Detailed architecture diagram (optional)</span>
+      <div class="stat-card">
+        <div class="stat-num orange">40MB</div>
+        <div class="stat-label">Vosk model size (runs fully locally)</div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- Modes -->
-  <section>
-    <div class="container">
-      <div class="section-label">Capabilities</div>
-      <h2>Operation Modes</h2>
+<!-- ── PROBLEM ── -->
+<section id="problem">
+  <div class="container">
+    <div class="sec-label">Problem Statement</div>
+    <h2>What We Set Out to Do</h2>
+    <p class="lead">We created a robot arm that is <strong>fully voice-controlled</strong>, integrating Robosuite with the Vosk speech recognition API. To benchmark the capabilities of a voice-controlled robot, we attempted two difficult manipulation tasks: <strong>nut assembly</strong> and <strong>multi-cube stacking</strong>.</p>
 
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-icon">&#x1F4E6;</div>
-          <h3>Block Stacking</h3>
-          <p>Say <strong>"stack"</strong> and the robot autonomously executes a full pick-and-place sequence: hover above cube A, descend and grasp, lift to cube B, and place. Four phases driven by waypoint targets and PID control.</p>
-        </div>
-        <div class="card">
-          <div class="card-icon">&#x270B;</div>
-          <h3>Grab-Hover-Place</h3>
-          <p>A voice-gated pipeline triggered by <strong>"grab"</strong>. The robot grabs the object and waits. Say <strong>"hover"</strong> to move above the target, then <strong>"place"</strong> to set it down. Each phase requires explicit confirmation.</p>
-        </div>
-        <div class="card">
-          <div class="card-icon">&#x1F3AE;</div>
-          <h3>Incremental Teleop</h3>
-          <p>Fine-grained voice jogging. Commands like <strong>"up"</strong>, <strong>"left"</strong>, <strong>"forward"</strong>, <strong>"open"</strong>, and <strong>"close"</strong> each move the end-effector a small, fixed increment. Designed around the latency constraints of real-time speech recognition.</p>
-        </div>
+    <p>To achieve fine-grained control, we designed a layered command system spanning three levels of autonomy:</p>
+
+    <div class="grid-3" style="margin-top: 1.75rem;">
+      <div class="card">
+        <div class="card-icon icon-green">🤖</div>
+        <h3>Fully Autonomous</h3>
+        <p>High-level commands like <strong>"stack"</strong> and <strong>"assemble"</strong> execute the entirety of a given task without any further input.</p>
       </div>
+      <div class="card">
+        <div class="card-icon icon-purple">🎯</div>
+        <h3>Segmented Autonomous</h3>
+        <p>Mid-level waypoint commands like <strong>"grab"</strong>, <strong>"hover"</strong>, and <strong>"place"</strong> let the user guide the robot through individual phases.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-blue">🕹️</div>
+        <h3>Incremental Control</h3>
+        <p>Low-level positional commands such as <strong>"forward"</strong>, <strong>"back"</strong>, <strong>"up"</strong>, and <strong>"down"</strong> nudge the end-effector in small discrete steps.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-      <div class="media-row">
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-grab.png" alt="Grab phase"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image &mdash; Grab phase in action</span>
+<!-- ── METHODS ── -->
+<section id="methods">
+  <div class="container">
+    <div class="sec-label">Methods</div>
+    <h2>How It Works: A 3-Step Pipeline</h2>
+
+    <!-- Pipeline diagram -->
+    <div class="pipeline">
+      <div class="pipeline-flow">
+        <div class="pipe-node hi">
+          <div class="pipe-icon">🎙️</div>
+          <div class="pipe-title">Microphone</div>
+          <div class="pipe-sub">~0.25s blocks</div>
         </div>
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-place.png" alt="Place phase"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image &mdash; Place phase in action</span>
+        <div class="pipe-node hi">
+          <div class="pipe-icon">🔊</div>
+          <div class="pipe-title">Audio Pre-process</div>
+          <div class="pipe-sub">Mono → 16 kHz PCM</div>
+        </div>
+        <div class="pipe-node hi">
+          <div class="pipe-icon">🗣️</div>
+          <div class="pipe-title">Vosk ASR</div>
+          <div class="pipe-sub">Grammar-restricted</div>
+        </div>
+        <div class="pipe-node hi">
+          <div class="pipe-icon">🧠</div>
+          <div class="pipe-title">Command Level</div>
+          <div class="pipe-sub">Auto / Seg / Incr.</div>
+        </div>
+        <div class="pipe-node hi">
+          <div class="pipe-icon">📐</div>
+          <div class="pipe-title">PID Controller</div>
+          <div class="pipe-sub">Kp=10 Ki=0.1 Kd=5</div>
+        </div>
+        <div class="pipe-node hi">
+          <div class="pipe-icon">🤖</div>
+          <div class="pipe-title">MuJoCo Sim</div>
+          <div class="pipe-sub">20 Hz, 7D action</div>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- Voice Commands -->
-  <section>
-    <div class="container">
-      <div class="section-label">Interface</div>
-      <h2>Voice Commands</h2>
-      <p class="lead">The system recognizes a focused set of keywords, using Vosk's grammar constraints to maximize accuracy.</p>
+    <div class="steps">
 
-      <div class="keyword-grid">
-        <div class="keyword">"start"<small>Begin session</small></div>
-        <div class="keyword">"stack"<small>Auto stack</small></div>
-        <div class="keyword">"grab"<small>Grasp object</small></div>
-        <div class="keyword">"hover"<small>Move above target</small></div>
-        <div class="keyword">"place"<small>Set down</small></div>
-        <div class="keyword">"up"<small>+Z jog</small></div>
-        <div class="keyword">"down"<small>&minus;Z jog</small></div>
-        <div class="keyword">"left"<small>&minus;X jog</small></div>
-        <div class="keyword">"right"<small>+X jog</small></div>
-        <div class="keyword">"forward"<small>+Y jog</small></div>
-        <div class="keyword">"back"<small>&minus;Y jog</small></div>
-        <div class="keyword">"open"<small>Open gripper</small></div>
-        <div class="keyword">"close"<small>Close gripper</small></div>
-        <div class="keyword">"stop"<small>Halt</small></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Tech Stack -->
-  <section>
-    <div class="container">
-      <div class="section-label">Technology</div>
-      <h2>Tech Stack</h2>
-      <div class="grid-2">
-        <div class="card">
-          <h3>Simulation</h3>
-          <div class="tech-list">
-            <span class="tech-badge">Robosuite</span>
-            <span class="tech-badge">MuJoCo</span>
-            <span class="tech-badge">mjpython</span>
-            <span class="tech-badge">Panda Robot</span>
-          </div>
-          <p style="margin-top: 1rem;">Robosuite provides high-fidelity robot manipulation environments on top of the MuJoCo physics engine, with built-in tasks like block stacking and nut assembly.</p>
-        </div>
-        <div class="card">
-          <h3>Voice &amp; Audio</h3>
-          <div class="tech-list">
-            <span class="tech-badge">Vosk</span>
+      <!-- Step 1 -->
+      <div class="step">
+        <div class="step-num s1">1</div>
+        <div class="step-body">
+          <h3>Speech to Text</h3>
+          <p>The most important and arguably most difficult part of the project was ensuring the proper integration of a working speech-to-text model. We use the <strong>Vosk API's <code>vosk-model-small-en-0.15</code> model</strong> to handle this task. At only <strong>40 MB</strong> and requiring just <strong>300 MB of RAM</strong>, it runs entirely on a consumer laptop alongside the physics simulation.</p>
+          <p>Raw microphone audio is read in ~0.25 s blocks. For each block we: downmix to mono → resample with polyphase resampling to 16 kHz (what Vosk expects) → peak-normalize float samples when they exceed ±1 → convert to 16-bit PCM with clipping to the valid range. Those PCM chunks are fed to Vosk's <code>KaldiRecognizer</code>.</p>
+          <p>Critically, we use <strong>SetGrammar</strong> to restrict the recognizer's vocabulary to only our command keywords. This dramatically improves reliability for short, single-word commands instead of open-ended transcription &mdash; the recognizer can't confuse "up" with "cup" if "cup" is not in the grammar.</p>
+          <div style="margin-top: 1rem;">
+            <span class="tech-badge blue">Vosk</span>
+            <span class="tech-badge blue">KaldiRecognizer</span>
             <span class="tech-badge">SoundDevice</span>
-            <span class="tech-badge">SciPy (resampling)</span>
+            <span class="tech-badge">SciPy polyphase resample</span>
+            <span class="tech-badge">16-bit PCM</span>
           </div>
-          <p style="margin-top: 1rem;">Vosk runs a Kaldi-based speech recognition model entirely offline. Audio from SoundDevice is resampled to 16 kHz and processed with a grammar-restricted recognizer for fast, accurate keyword detection.</p>
         </div>
-        <div class="card">
-          <h3>Control</h3>
-          <div class="tech-list">
-            <span class="tech-badge">Custom PID</span>
-            <span class="tech-badge">NumPy</span>
-            <span class="tech-badge">SciPy Rotations</span>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step">
+        <div class="step-num s2">2</div>
+        <div class="step-body">
+          <h3>Position Computation</h3>
+          <p>Once a keyword is recognized, we determine <em>where</em> the robot should move next. The command level determines how much autonomy is given:</p>
+          <p>For <strong>incremental commands</strong> like "up", we set the target to a small offset from the current end-effector position. For <strong>high-level commands</strong> like "grab cube", the robot searches the Robosuite environment's observation dictionary for the nearest cube object, then sets the target slightly above the top of that object. The full "stack" and "assemble" commands invoke predefined multi-phase waypoint policies.</p>
+          <p>Due to the latency of voice recognition, we discovered that <strong>continuous movement was impossible to control precisely</strong>. The solution: the robot moves only in <strong>discrete steps</strong>, traveling a few units in a direction before stopping and waiting for the next command. This trades raw efficiency for far finer user control.</p>
+          <div style="margin-top: 1rem;">
+            <span class="tech-badge purple">Waypoint Policies</span>
+            <span class="tech-badge purple">Obs Dictionary Lookup</span>
+            <span class="tech-badge purple">Discrete Step Motion</span>
           </div>
-          <p style="margin-top: 1rem;">A tuned PID controller converts waypoint targets into smooth delta-position commands. Quaternion and rotation utilities from SciPy handle orientation math.</p>
         </div>
-        <div class="card">
-          <h3>Language &amp; Tools</h3>
-          <div class="tech-list">
-            <span class="tech-badge">Python</span>
-            <span class="tech-badge">NumPy</span>
-            <span class="tech-badge">SciPy</span>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step">
+        <div class="step-num s3">3</div>
+        <div class="step-body">
+          <h3>Control &amp; Movement via PID</h3>
+          <p>Once the robot knows its target, a <strong>PID controller</strong> drives the end-effector to that position. PID gives two key advantages over open-loop movement: it <strong>self-corrects</strong> if the robot deviates from course due to obstacles or physics errors, and it produces smooth acceleration rather than jerky steps.</p>
+          <p>Each simulation step, the controller outputs a <strong>7-dimensional action vector</strong>: [ΔX, ΔY, ΔZ, axis-angle × 3, gripper]. The simulation runs at 20 Hz (dt = 0.05 s).</p>
+
+          <table class="pid-table" style="margin-top: 1.25rem;">
+            <thead>
+              <tr>
+                <th>Parameter</th>
+                <th>Value</th>
+                <th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Kp</strong> (Proportional)</td>
+                <td><span class="val">10.0</span></td>
+                <td>High gain to reach target quickly within a small movement budget</td>
+              </tr>
+              <tr>
+                <td><strong>Kd</strong> (Derivative)</td>
+                <td><span class="val">5.0</span></td>
+                <td>Damps oscillation and prevents overshoot at the target position</td>
+              </tr>
+              <tr>
+                <td><strong>Ki</strong> (Integral)</td>
+                <td><span class="val">0.1</span></td>
+                <td>Small value to eliminate steady-state error without introducing drift</td>
+              </tr>
+              <tr>
+                <td><strong>dt</strong></td>
+                <td><span class="val">0.05 s</span></td>
+                <td>Matches the simulation's 20 Hz step rate</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top: 1rem;">
+            <span class="tech-badge green">Custom PID</span>
+            <span class="tech-badge green">NumPy</span>
+            <span class="tech-badge green">SciPy Rotations</span>
+            <span class="tech-badge green">20 Hz Control Loop</span>
           </div>
-          <p style="margin-top: 1rem;">The entire system is written in Python, leveraging NumPy for numerical operations and SciPy for signal processing and spatial transforms.</p>
         </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <!-- Voice commands reference -->
+    <div style="margin-top: 3.5rem;">
+      <h3 style="margin-bottom: 0.4rem;">Full Command Reference</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0;">Every word the robot understands, organized by command level.</p>
+      <div class="kw-legend">
+        <span><span class="kw-dot" style="background:var(--green)"></span>Fully Autonomous</span>
+        <span><span class="kw-dot" style="background:var(--purple)"></span>Segmented Autonomous</span>
+        <span><span class="kw-dot" style="background:var(--blue)"></span>Incremental Teleop</span>
+        <span><span class="kw-dot" style="background:var(--orange)"></span>System</span>
+      </div>
+      <div class="keyword-grid">
+        <div class="kw autonomous"><code>"stack"</code><small>Stack cubes fully</small></div>
+        <div class="kw autonomous"><code>"assemble"</code><small>Full nut assembly</small></div>
+        <div class="kw segmented"><code>"grab"</code><small>Grasp nearest object</small></div>
+        <div class="kw segmented"><code>"hover"</code><small>Move above target</small></div>
+        <div class="kw segmented"><code>"place"</code><small>Set down object</small></div>
+        <div class="kw teleop"><code>"up"</code><small>+Z end-effector</small></div>
+        <div class="kw teleop"><code>"down"</code><small>−Z end-effector</small></div>
+        <div class="kw teleop"><code>"left"</code><small>−X end-effector</small></div>
+        <div class="kw teleop"><code>"right"</code><small>+X end-effector</small></div>
+        <div class="kw teleop"><code>"forward"</code><small>+Y end-effector</small></div>
+        <div class="kw teleop"><code>"back"</code><small>−Y end-effector</small></div>
+        <div class="kw teleop"><code>"open"</code><small>Open gripper</small></div>
+        <div class="kw teleop"><code>"close"</code><small>Close gripper</small></div>
+        <div class="kw sys"><code>"start"</code><small>Begin session</small></div>
+        <div class="kw sys"><code>"stop"</code><small>Halt robot</small></div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- Challenges -->
-  <section>
-    <div class="container">
-      <div class="section-label">Challenges</div>
-      <h2>Challenges We Faced</h2>
-      <p class="lead">Building a real-time voice-controlled robot system introduced several non-obvious engineering challenges that shaped our final design.</p>
+<!-- ── EVALUATION ── -->
+<section id="eval">
+  <div class="container">
+    <div class="sec-label">Evaluation</div>
+    <h2>Results: Two Hard Tasks, Two Successes</h2>
+    <p class="lead">We evaluated the robot on two canonical Robosuite tasks, designed to stress-test precision, dexterity, and spatial reasoning.</p>
 
-      <div class="challenge-card">
-        <h3>Speech-to-Text Accuracy</h3>
-        <p>Getting a speech recognition model to reliably convert spoken commands into text was one of the hardest parts of the project. General-purpose ASR models would frequently misinterpret short, single-word commands like "up" or "back", confusing them with similar-sounding words or background noise. We experimented with multiple models and configurations before settling on Vosk with a tightly constrained grammar. By restricting the recognizer's vocabulary to only our valid command keywords, we dramatically reduced misrecognition. Even so, tuning the audio pipeline &mdash; getting the right sample rate, buffer size, and noise handling &mdash; took significant iteration.</p>
+    <div class="grid-2" style="margin-top: 2.5rem;">
+
+      <div class="result-card">
+        <div class="result-card-header">
+          <div class="result-time green">✓ Success &mdash; 30 seconds</div>
+          <h3>Task 1: Multi-Cube Stacking</h3>
+        </div>
+        <div class="result-card-body">
+          <p>To make the cube stacking task truly challenging, we stacked <strong>3 progressively smaller cubes</strong> on top of each other &mdash; testing the robot's ability to move precisely in all 3 spatial directions in a synchronized manner and grip objects of varying sizes.</p>
+          <p>The results were a resounding success. The robot completed the full stack in just <strong>30 seconds</strong>, neatly placing each cube on the one below. As a bonus, it then stacked a very large cube on top of the entire tower &mdash; a testament to the robustness and precision of the voice-controlled system.</p>
+          <div style="margin-top: 1rem;">
+            <span class="tech-badge green">3 cubes stacked</span>
+            <span class="tech-badge green">All 3 spatial axes</span>
+            <span class="tech-badge green">Gripper precision</span>
+          </div>
+        </div>
       </div>
 
-      <div class="challenge-card">
-        <h3>Voice Recognition Latency</h3>
-        <p>Even after achieving acceptable accuracy, the latency of the speech-to-text pipeline was a major constraint. From the moment a user finishes speaking a command to when the recognized keyword is available to the control system, there is a noticeable delay. This delay comes from audio buffering, the recognition computation itself, and the inherent lag in detecting end-of-speech. For a robot control application, this latency made continuous, real-time motion impractical &mdash; by the time the system processed one command, the robot had already moved past where the user intended.</p>
+      <div class="result-card">
+        <div class="result-card-header">
+          <div class="result-time blue">✓ Success &mdash; 51 seconds</div>
+          <h3>Task 2: Nut Assembly</h3>
+        </div>
+        <div class="result-card-body">
+          <p>The nut assembly task is <strong>considerably harder</strong>. The robot must: align precisely with a thin nut just centimeters above the table → grip it → rotate → align again with the peg → and drop it accurately onto the peg. Even a small misalignment causes the nut to miss entirely.</p>
+          <p>We succeeded in this task as well, completing it in <strong>51 seconds</strong>. Crucially, this task also required <strong>rotation control</strong> &mdash; using all axes of motion including yaw alignment with a separate rotation PID &mdash; showcasing the full capability of our 4-DoF voice-controlled system.</p>
+          <div style="margin-top: 1rem;">
+            <span class="tech-badge blue">Rotation control</span>
+            <span class="tech-badge blue">Sub-cm alignment</span>
+            <span class="tech-badge blue">All axes of motion</span>
+          </div>
+        </div>
       </div>
 
-      <div class="challenge-card">
-        <h3>Running Models Locally</h3>
-        <p>We wanted the entire system to run locally without depending on cloud APIs, both for lower latency and to avoid network dependencies. Getting a speech recognition model to run efficiently on a local machine, while simultaneously running a physics simulation, was a real challenge. Cloud-based ASR services offered better accuracy but introduced unacceptable round-trip latency. Vosk's small English model struck the right balance: it runs locally with minimal resource usage while providing adequate accuracy for our constrained keyword vocabulary.</p>
-      </div>
+    </div>
 
-      <div class="challenge-card resolved">
-        <h3>Solution: Incremental Movement Commands</h3>
-        <p>The combination of recognition latency and accuracy constraints led us to a key design decision: <strong>each voice command moves the robot only a small, fixed increment</strong> rather than initiating continuous motion. In the incremental teleop mode, saying "up" moves the end-effector a short burst (~26 simulation steps) in the +Z direction and then stops. This discrete approach has several advantages: it's forgiving of latency since overshoot is bounded, it doesn't require a "stop" command to halt motion, and it naturally maps to the cadence of spoken commands. The user speaks, the robot nudges, and the user can observe and correct &mdash; a much more reliable feedback loop than trying to stream continuous commands through a high-latency voice pipeline.</p>
+    <div class="media-grid">
+      <div class="media-wrap">
+        <img src="website_assets/BlockStack.png" alt="Robot successfully stacking three progressively smaller cubes">
       </div>
-
-      <div class="media-placeholder" style="margin-top: 2rem;">
-        <!-- Replace with: <img src="your-image-challenge.png" alt="Latency diagram or comparison"> -->
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-        <span>Image &mdash; Latency comparison or debugging screenshot</span>
+      <div class="media-wrap">
+        <img src="website_assets/nutAssemblyGif.gif" alt="Robot performing nut assembly task with rotation control">
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- Gallery -->
-  <section>
-    <div class="container">
-      <div class="section-label">Gallery</div>
-      <h2>Images &amp; Videos</h2>
-      <p class="lead">Screenshots, recordings, and diagrams from development and testing.</p>
+<!-- ── DISCUSSION ── -->
+<section id="discussion">
+  <div class="container">
+    <div class="sec-label">Discussion</div>
+    <h2>Challenges &amp; Lessons Learned</h2>
+    <p class="lead">Building a real-time voice-controlled robot surfaced several non-obvious engineering problems. Here's what we ran into and how we addressed each one.</p>
 
-      <div class="media-row">
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-1.png" alt="Description"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image placeholder 1</span>
-        </div>
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-2.png" alt="Description"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image placeholder 2</span>
-        </div>
+    <div class="challenge">
+      <h3>⚠️ Speech Recognition Latency (~2 second delay)</h3>
+      <p>Our initial plan was to have the robot move <strong>continuously</strong>, only changing direction when the user issued a new voice command. This seemed like the most natural control paradigm. In practice, the model would only receive the command and change course nearly <strong>2 seconds</strong> after it was issued &mdash; a dealbreaker in a small, precise environment.</p>
+      <p>We tried two approaches to reduce this: switching from a hosted API to running the model locally, and trying different model sizes. Neither brought latency low enough for continuous control. We believe that with a much stronger GPU for inference, latency could be reduced drastically enough to enable continuous motion. For now, the system remains discrete.</p>
+    </div>
+
+    <div class="challenge">
+      <h3>⚠️ Getting Speech-to-Text to Work Reliably</h3>
+      <p>General-purpose ASR models failed frequently on short single-word commands like "up" or "back", confusing them with phonetically similar words or background noise. The entire audio preprocessing pipeline &mdash; sample rate, buffer size, normalization, PCM conversion &mdash; required careful tuning before Vosk could produce reliable results.</p>
+      <p>The key breakthrough was <strong>SetGrammar</strong>: restricting Vosk's vocabulary to only our command words. This transformed recognition from unreliable to robust for our use case.</p>
+    </div>
+
+    <div class="challenge">
+      <h3>⚠️ Running Models Locally</h3>
+      <p>Running a speech recognition model on a consumer laptop while simultaneously running a MuJoCo physics simulation was more resource-constrained than expected. Cloud ASR services offered better accuracy but added unacceptable round-trip latency. Vosk's <code>vosk-model-small-en-0.15</code> (40 MB, 300 MB RAM) was the sweet spot: capable enough with grammar constraints, lightweight enough not to starve the simulation.</p>
+    </div>
+
+    <div class="challenge win">
+      <h3>✅ Solution: Discrete Step Movement</h3>
+      <p>The key design insight that made everything work: <strong>each voice command moves the robot only a small, fixed increment</strong> instead of initiating continuous motion. Saying "up" moves the end-effector ~26 simulation steps in the +Z direction, then the robot stops and waits for the next command.</p>
+      <p>This turns a latency problem into a feature. Overshoot is bounded by the step size. There's no need for a separate "stop" command. The feedback loop &mdash; speak, observe, correct &mdash; is actually well-suited to the natural cadence of speech. We traded raw efficiency for dramatically improved controllability.</p>
+    </div>
+
+    <h3 style="margin-top: 3rem; margin-bottom: 1.2rem; font-size: 1.3rem;">Future Directions</h3>
+    <div class="grid-2">
+      <div class="future-card">
+        <h3>🧠 Vision-Language Models</h3>
+        <p>The most promising next step is inserting a <strong>vision-language model (VLM)</strong> between the speech-to-text output and the position planning stage. This would enable complex, natural language instructions instead of single keywords &mdash; commands like "grab the blue cube and put it on the red one" would become possible without hardcoded policies.</p>
       </div>
-
-      <div class="media-row">
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-3.png" alt="Description"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image placeholder 3</span>
-        </div>
-        <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-4.png" alt="Description"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image placeholder 4</span>
-        </div>
-      </div>
-
-      <div class="media-placeholder video">
-        <!-- Replace with: <video src="your-additional-video.mp4" controls></video> -->
-        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-        <span>Additional video placeholder</span>
+      <div class="future-card">
+        <h3>🔄 Full 6-DoF Control</h3>
+        <p>Currently the robot has <strong>4 of 6 degrees of freedom</strong> &mdash; it lacks roll and pitch control. Adding these two axes would unlock a fully dexterous robot capable of far harder tasks, such as opening a door, turning a key, or manipulating objects at arbitrary orientations.</p>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- Footer -->
-  <footer>
-    <div class="container">
-      <p>CS 188 &mdash; Final Project &mdash; Voice-Controlled Robot Simulation</p>
+<!-- ── CONTRIBUTIONS ── -->
+<section id="contrib">
+  <div class="container">
+    <div class="sec-label">Contributions</div>
+    <h2>Team</h2>
+    <p class="lead">This project was a collaborative effort. Here's what each person built.</p>
+
+    <div class="contrib-grid">
+      <div class="contrib-card">
+        <div class="contrib-name">Aneesh</div>
+        <div class="contrib-item">Voice integration &amp; Vosk ASR pipeline</div>
+        <div class="contrib-item">PID controller design and tuning</div>
+        <div class="contrib-item">System evaluation and benchmarking</div>
+      </div>
+      <div class="contrib-card">
+        <div class="contrib-name">Sanjay</div>
+        <div class="contrib-item">High-level and low-level position control</div>
+        <div class="contrib-item">Mapping speech keywords to robot actions</div>
+        <div class="contrib-item">Project website</div>
+      </div>
     </div>
-  </footer>
+
+    <div class="challenge" style="margin-top: 1.5rem; border-left-color: var(--text-muted);">
+      <h3 style="color: var(--text-muted);">Note on AI Use</h3>
+      <p>AI was used to help create the website and assist in writing low-level command functions, with heavy oversight from the team. All core system design decisions, tuning, and evaluation were done by us.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <p><strong>Voice-Controlled Robot Arm</strong> &mdash; CS 188 Final Project</p>
+  <p style="margin-top: 0.3rem;">Built with Robosuite, MuJoCo, Vosk, and Python</p>
+</footer>
 
 </body>
 </html>
