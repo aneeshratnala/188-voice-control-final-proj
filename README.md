@@ -6,7 +6,7 @@
 mjpython test.py
 ```
 
-`test.py` uses two voice steps: say **start** to open the sim (robot idle), then **move** to run the stack policy. See `voice_start.py` (`wait_for_start`, `wait_for_move`).
+`test.py`: **start** → **stack** (one-shot) or **grab** (then say **hover**, then **place**). Grab uses the same waypoints as the full stack, split across voice: grasp + hold → move to above-green hover → place-down (phase 3 only after **place**). See `voice_start.py`.
 
 ## Voice setup
 

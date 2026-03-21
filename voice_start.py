@@ -5,7 +5,7 @@ Typical flow
 ------------
 1. ``wait_for_start()`` — say **start** → returns a loaded ``Model`` (reuse for step 2).
 2. Build env, reset, create policy; pass a **between_blocks** callback that renders + zero-steps.
-3. ``wait_for_move(model, between_blocks=...)`` — say **move** → then run ``policy.get_action`` / ``env.step``.
+3. ``wait_for_stack_or_grab`` — **stack** (one-shot) or **grab** (then **hover**, **place**).
 
 Setup: pip install vosk sounddevice numpy scipy; Vosk English model path (see VOSK_MODEL_PATH).
 
@@ -31,7 +31,9 @@ BLOCK_DURATION_S = 0.25
 DEFAULT_SOUND_DEVICE_INDEX: int | None = None
 
 KEYWORDS_OPEN = frozenset({"start"})
-KEYWORDS_MOVE = frozenset({"move"})
+KEYWORDS_STACK_OR_GRAB = frozenset({"stack", "grab"})
+KEYWORDS_HOVER = frozenset({"hover"})
+KEYWORDS_PLACE = frozenset({"place"})
 
 
 def _debug() -> bool:
@@ -121,14 +123,22 @@ def _text_matches(text: str, keywords: frozenset[str]) -> bool:
     return False
 
 
+def _first_matched_keyword(text: str, keywords: frozenset[str]) -> str | None:
+    for w in re.findall(r"[a-zA-Z']+", text.lower()):
+        if w in keywords:
+            return w
+    return None
+
+
 def wait_for_keywords(
     keywords: frozenset[str],
     *,
-    heard_message: str,
+    heard_message: str | None,
     prompt: str,
     between_blocks: Callable[[], None] | None = None,
     model: object | None = None,
-) -> object:
+    return_matched_keyword: bool = False,
+) -> object | tuple[object, str]:
     """
     Block until Vosk hears one of *keywords* (final or partial).
 
@@ -147,7 +157,7 @@ def wait_for_keywords(
 
     Returns
     -------
-    The vosk ``Model`` instance (pass to the next ``wait_for_keywords`` / ``wait_for_move``).
+    The vosk ``Model``, or ``(model, matched_word)`` if *return_matched_keyword* is True.
     """
     try:
         import sounddevice as sd
@@ -254,8 +264,12 @@ def wait_for_keywords(
                         text = (json.loads(rec.Result()).get("text") or "").strip()
                         if dbg and text:
                             print(f"[voice] final: {text!r}", flush=True)
-                        if _text_matches(text, keywords):
-                            print(heard_message, flush=True)
+                        matched = _first_matched_keyword(text, keywords)
+                        if matched is not None:
+                            msg = heard_message or 'Heard "{word}" — starting motion.'
+                            print(msg.replace("{word}", matched), flush=True)
+                            if return_matched_keyword:
+                                return model, matched
                             return model
                     else:
                         partial = (
@@ -264,8 +278,12 @@ def wait_for_keywords(
                         if partial and partial != last_partial and dbg:
                             print(f"[voice] partial: {partial!r}", flush=True)
                             last_partial = partial
-                        if _text_matches(partial, keywords):
-                            print(heard_message, flush=True)
+                        matched = _first_matched_keyword(partial, keywords)
+                        if matched is not None:
+                            msg = heard_message or 'Heard "{word}" — starting motion.'
+                            print(msg.replace("{word}", matched), flush=True)
+                            if return_matched_keyword:
+                                return model, matched
                             return model
 
                 if between_blocks is not None:
@@ -277,31 +295,66 @@ def wait_for_keywords(
 
 
 def wait_for_start() -> object:
-    """Say **start** to proceed (loads Vosk model; returns it for ``wait_for_move``)."""
+    """Say **start** to proceed (loads Vosk model; returns it for the next voice step)."""
     return wait_for_keywords(
         KEYWORDS_OPEN,
         heard_message='Heard "start" — opening simulation.',
         prompt='Say "start" to open the simulation, then wait for the window.',
         between_blocks=None,
         model=None,
+        return_matched_keyword=False,
     )
 
 
-def wait_for_move(model: object, *, between_blocks: Callable[[], None]) -> None:
-    """Say **move** while *between_blocks* keeps the viewer alive (render + zero-step)."""
-    wait_for_keywords(
-        KEYWORDS_MOVE,
-        heard_message='Heard "move" — running the policy.',
-        prompt='Say "move" to begin the robot motion.',
+def wait_for_stack_or_grab(model: object, *, between_blocks: Callable[[], None]) -> str:
+    """
+    Say **stack** (full stack in one go) or **grab** (then say **hover**, then **place**).
+
+    Returns ``\"stack\"`` or ``\"grab\"``.
+    """
+    _, cmd = wait_for_keywords(
+        KEYWORDS_STACK_OR_GRAB,
+        heard_message=None,
+        prompt='Say "stack" for one-shot stack, or "grab" to run grab → hover → place in steps.',
         between_blocks=between_blocks,
         model=model,
+        return_matched_keyword=True,
+    )
+    return cmd
+
+
+def wait_for_hover(model: object, *, between_blocks: Callable[[], None]) -> None:
+    """Say **hover** to move from post-grasp hold to above the green cube."""
+    wait_for_keywords(
+        KEYWORDS_HOVER,
+        heard_message=None,
+        prompt='Say "hover" to move to the hover pose above the green block.',
+        between_blocks=between_blocks,
+        model=model,
+        return_matched_keyword=False,
+    )
+
+
+def wait_for_place(model: object, *, between_blocks: Callable[[], None]) -> None:
+    """Say **place** to run the existing place-down + release on the green cube."""
+    wait_for_keywords(
+        KEYWORDS_PLACE,
+        heard_message=None,
+        prompt='Say "place" to lower and release on the green block.',
+        between_blocks=between_blocks,
+        model=model,
+        return_matched_keyword=False,
     )
 
 
 __all__ = [
-    "KEYWORDS_MOVE",
+    "KEYWORDS_HOVER",
     "KEYWORDS_OPEN",
+    "KEYWORDS_PLACE",
+    "KEYWORDS_STACK_OR_GRAB",
     "wait_for_keywords",
-    "wait_for_move",
+    "wait_for_hover",
+    "wait_for_place",
+    "wait_for_stack_or_grab",
     "wait_for_start",
 ]

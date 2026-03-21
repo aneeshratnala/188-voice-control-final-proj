@@ -10,32 +10,57 @@ import robosuite.utils.transform_utils as T
 class StackPolicy(object):
     """
     Policy for the Block Stacking task.
-    Phase 1: Hover over Cube A.
-    Phase 2: Lower and Grasp Cube A.
-    Phase 3: Lift and Move above Cube B.
-    Phase 4: Stack on Cube B and Release.
+
+    **Full run** (``segmented=False``): phases 0→1→2→3 in one go (hover A, grasp A,
+    hover above B, place on B).
+
+    **Segmented** (``segmented=True``): voice-gated — **grab** runs 0→1, then hold (phase 10);
+    **hover** continues 2, then hold (phase 11); **place** runs phase 3 only. Uses the same
+    targets as the full run for each segment (no separate place-down motion until phase 3).
     """
-    def __init__(self, obs):
+    def __init__(self, obs, segmented=False):
         """
         Args:
             obs (dict): Includes 'cubeA_pos' and 'cubeB_pos'.
+            segmented: If True, pause after grasp and after B-hover until ``begin_hover`` /
+                ``begin_place`` are called (for grab → hover → place voice flow).
         """
-        # initialize PID controller and waypoints here
         self.cubeA_pos = obs["cubeA_pos"]
         self.cubeB_pos = obs["cubeB_pos"]
-        self.phase = 0  # 0: hover over A, 1: lower and grasp A, 2: move above B, 3: stack on B
-        
-        # get current end-effector position
+        self.segmented = bool(segmented)
+        # 0–3: same as full stack; 10 = hold after grasp; 11 = hold above B before place
+        self.phase = 0
+        self._post_grasp_hold = None
+        self._hover_hold_target = None
+
         eef_pos = obs["robot0_eef_pos"]
-        
-        # initialize PID controller - target will be updated in get_action
-        # using moderate gains for smooth control
-        self.controller = PID(kp = 10.0, ki = 0.1, kd = 5.0, target = eef_pos[:3])
-        
-        # time step for PID controller (typical control frequency ~20Hz)
+        self.controller = PID(kp=10.0, ki=0.1, kd=5.0, target=eef_pos[:3])
         self.dt = 0.05
 
-        
+    def begin_hover(self) -> None:
+        """After voice **hover**: leave post-grasp hold and run existing phase-2 motion to above B."""
+        if self.phase == 10:
+            self.phase = 2
+
+    def begin_place(self) -> None:
+        """After voice **place**: leave B-hover hold and run existing phase-3 place-down + release."""
+        if self.phase == 11:
+            self.phase = 3
+
+    def segment_grab_done(self, obs) -> bool:
+        """Segmented: grasp complete and stable at post-grasp hold (phase 10)."""
+        if not self.segmented or self.phase != 10 or self._post_grasp_hold is None:
+            return False
+        eef = obs["robot0_eef_pos"]
+        return np.linalg.norm(eef[:3] - self._post_grasp_hold) < 0.03
+
+    def segment_hover_done(self, obs) -> bool:
+        """Segmented: reached hold above B (phase 11), before place."""
+        if not self.segmented or self.phase != 11 or self._hover_hold_target is None:
+            return False
+        eef = obs["robot0_eef_pos"]
+        return np.linalg.norm(eef[:3] - self._hover_hold_target) < 0.03
+
     def get_action(self, obs):
         """
         Returns:
@@ -97,35 +122,63 @@ class StackPolicy(object):
                 
                 # wait ~15 steps (0.75 second at 20Hz) before lifting (reduced from 20 for faster execution)
                 if self.grasp_wait > 15:
-                    self.phase = 2
-                    self.grasp_wait = 0  # reset for next time
+                    if self.segmented:
+                        self.phase = 10
+                        # Same low grasp pose as phase 1 target (existing waypoint, not place-down)
+                        self._post_grasp_hold = cubeA_pos.copy()
+                        self._post_grasp_hold[2] += 0.01
+                    else:
+                        self.phase = 2
+                    self.grasp_wait = 0
             else:
                 # keep gripper open until we're close enough
                 action[-1] = -1.0
                 if hasattr(self, 'grasp_wait'):
                     self.grasp_wait = 0  # reset if we move away
         
-        # phase 2: lift and move above cube B
+        # phase 2: existing waypoint — hover 10 cm above cube B (before place-down)
         elif self.phase == 2:
             target_pos = cubeB_pos.copy()
             target_pos[2] += 0.1  # 10cm above cube B
-            
-            # update controller target
+
             self.controller.reset(target=target_pos)
-            
-            # get control signal
             control = self.controller.update(eef_pos[:3], self.dt)
             action[:3] = control
-            
-            # keep gripper closed (holding cube A)
             action[-1] = 1.0
-            
-            # check if close enough to move to stacking phase
+
             distance = np.linalg.norm(eef_pos[:3] - target_pos)
-            if distance < 0.03:  # within 3cm
-                self.phase = 3
-        
-        # phase 3: stack on cube B and release
+            if distance < 0.03:
+                if self.segmented:
+                    self.phase = 11
+                    self._hover_hold_target = target_pos.copy()
+                else:
+                    self.phase = 3
+
+        # phase 10: segmented — hold at grasp pose (no move toward B until begin_hover)
+        elif self.phase == 10:
+            target_pos = (
+                self._post_grasp_hold.copy()
+                if self._post_grasp_hold is not None
+                else eef_pos[:3]
+            )
+            self.controller.reset(target=target_pos)
+            control = self.controller.update(eef_pos[:3], self.dt)
+            action[:3] = control
+            action[-1] = 1.0
+
+        # phase 11: segmented — hold above B (no place-down until begin_place)
+        elif self.phase == 11:
+            target_pos = (
+                self._hover_hold_target.copy()
+                if self._hover_hold_target is not None
+                else eef_pos[:3]
+            )
+            self.controller.reset(target=target_pos)
+            control = self.controller.update(eef_pos[:3], self.dt)
+            action[:3] = control
+            action[-1] = 1.0
+
+        # phase 3: stack on cube B and release (existing place-down motion)
         elif self.phase == 3:
             target_pos = cubeB_pos.copy()
             target_pos[2] += 0.05  # stack cube A on top of cube B
@@ -139,7 +192,7 @@ class StackPolicy(object):
             
             # open gripper to release cube A
             action[-1] = -1.0
-        
+
         return action
 
 class NutAssemblyPolicy(object):

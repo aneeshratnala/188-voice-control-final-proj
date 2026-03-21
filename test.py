@@ -2,12 +2,17 @@ import numpy as np
 import robosuite as suite
 from policies import *
 
-from voice_start import wait_for_move, wait_for_start
+from voice_start import (
+    wait_for_hover,
+    wait_for_place,
+    wait_for_stack_or_grab,
+    wait_for_start,
+)
 
 # 1) Voice: open sim only after "start"
 vosk_model = wait_for_start()
 
-# 2) One episode instance — same reset for idle listening and stacking (no new episode on "move")
+# 2) One episode instance
 env = suite.make(
     env_name="Stack",  # replace with "NutAssembly" and "Door" (1)
     robots="Panda",
@@ -21,22 +26,54 @@ obs_holder = [env.reset()]
 
 
 def _idle_while_listening() -> None:
-    """Keep the window responsive; do not advance the manipulation policy."""
+    """Idle before first command (no policy yet / not segmented)."""
     env.render()
-    zero = np.zeros(7)
-    obs_holder[0], _, _, _ = env.step(zero)
+    obs_holder[0], _, _, _ = env.step(np.zeros(7))
 
 
-# 3) Voice: begin stacking only after "move" (still the same episode)
-wait_for_move(vosk_model, between_blocks=_idle_while_listening)
+# 3) "stack" = full run | "grab" = grab → (voice) hover → (voice) place
+command = wait_for_stack_or_grab(vosk_model, between_blocks=_idle_while_listening)
 
-# 4) Complete stacking in this episode only — do not reset here
 obs = obs_holder[0]
-policy = StackPolicy(obs)  ## CHANGE NAME HERE (2)
+segmented = command == "grab"
+policy = StackPolicy(obs, segmented=segmented)  ## CHANGE NAME HERE (2)
 
-while True:
-    action = policy.get_action(obs)
-    obs, reward, done, info = env.step(action)
+
+def _listen_with_policy() -> None:
+    """While waiting for voice, keep sim stepping with current policy (hold poses)."""
+    o = obs_holder[0]
+    obs_holder[0], _, _, _ = env.step(policy.get_action(o))
     env.render()
-    if reward == 1.0 or done:
-        break
+
+
+def _run_until_stack_done() -> None:
+    while True:
+        o = obs_holder[0]
+        action = policy.get_action(o)
+        obs_holder[0], reward, done, info = env.step(action)
+        env.render()
+        if reward == 1.0 or done:
+            break
+
+
+if segmented:
+    # Grab: phases 0–1, then hold (phase 10) — no B motion yet
+    while not policy.segment_grab_done(obs_holder[0]):
+        o = obs_holder[0]
+        obs_holder[0], _, _, _ = env.step(policy.get_action(o))
+        env.render()
+
+    wait_for_hover(vosk_model, between_blocks=_listen_with_policy)
+    policy.begin_hover()
+
+    # Hover: existing phase-2 waypoint above green cube, then hold (phase 11)
+    while not policy.segment_hover_done(obs_holder[0]):
+        o = obs_holder[0]
+        obs_holder[0], _, _, _ = env.step(policy.get_action(o))
+        env.render()
+
+    wait_for_place(vosk_model, between_blocks=_listen_with_policy)
+    policy.begin_place()
+
+# Place (segmented) or full stack: existing phase-3 place-down + release
+_run_until_stack_done()
