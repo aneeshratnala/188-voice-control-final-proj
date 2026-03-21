@@ -574,6 +574,34 @@
       color: var(--blue);
     }
 
+    /* ── EVAL TABLE ───────────────────────── */
+    .eval-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .eval-table th,
+    .eval-table td {
+      padding: 0.65rem 1rem;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .eval-table th {
+      background: var(--surface-2);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .eval-table tbody tr:hover td { background: var(--surface-2); }
+
+    .eval-table .num { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+
     /* ── FUTURE CARDS ──────────────────────── */
     .future-card {
       background: var(--surface);
@@ -707,9 +735,18 @@
   <div class="container">
     <div class="sec-label">Problem Statement</div>
     <h2>What We Set Out to Do</h2>
-    <p class="lead">We created a robot arm that is <strong>fully voice-controlled</strong>, integrating Robosuite with the Vosk speech recognition API. To benchmark the capabilities of a voice-controlled robot, we attempted two difficult manipulation tasks: <strong>nut assembly</strong> and <strong>multi-cube stacking</strong>.</p>
+    <p class="lead">For our final project, we created a robot arm that is <strong>fully voice-controlled</strong>, integrating Robosuite with the Vosk API. To benchmark what voice control can do, we attempted two difficult Robosuite tasks: <strong>nut assembly</strong> and <strong>multi-cube stacking</strong>. We provide commands for dexterous control: low-level position commands such as &ldquo;forward,&rdquo; &ldquo;back,&rdquo; &ldquo;up,&rdquo; and &ldquo;down&rdquo;; waypoint-style commands such as &ldquo;grab,&rdquo; &ldquo;hover,&rdquo; and &ldquo;place&rdquo;; and highest-level commands like &ldquo;stack&rdquo; and &ldquo;assemble&rdquo; that can run an entire task. This problem framing was inspired by the sample multimodal-processing statement in the project rubric.</p>
 
-    <p>To achieve fine-grained control, we designed a layered command system spanning three levels of autonomy:</p>
+    <div class="media-grid" style="margin-top: 2rem;">
+      <div class="media-wrap">
+        <img src="website_assets/BlockStack.png" alt="Robot in the multi-cube stacking environment">
+      </div>
+      <div class="media-wrap">
+        <img src="website_assets/nutAssemblyGif.gif" alt="Waypoint-based grab and place in the nuts and pegs environment">
+      </div>
+    </div>
+
+    <p style="margin-top: 2rem;">To achieve fine-grained control, we designed a layered command system spanning three levels of autonomy:</p>
 
     <div class="grid-3" style="margin-top: 1.75rem;">
       <div class="card">
@@ -725,7 +762,7 @@
       <div class="card">
         <div class="card-icon icon-blue">INCR</div>
         <h3>Incremental Control</h3>
-        <p>Low-level positional commands such as <strong>"forward"</strong>, <strong>"back"</strong>, <strong>"up"</strong>, and <strong>"down"</strong> nudge the end-effector in small discrete steps.</p>
+        <p>Low-level commands such as <strong>&ldquo;up,&rdquo;</strong> <strong>&ldquo;down,&rdquo;</strong> <strong>&ldquo;left,&rdquo;</strong> <strong>&ldquo;right,&rdquo;</strong> <strong>&ldquo;forward,&rdquo;</strong> <strong>&ldquo;back,&rdquo;</strong> <strong>&ldquo;clockwise,&rdquo;</strong> and <strong>&ldquo;counterclockwise&rdquo;</strong> apply short bursts of motion in world axes (see Methods).</p>
       </div>
     </div>
   </div>
@@ -735,7 +772,12 @@
 <section id="methods">
   <div class="container">
     <div class="sec-label">Methods</div>
-    <h2>How It Works: A 3-Step Pipeline</h2>
+    <h2>Pipeline: Speech, Routing, and Motion</h2>
+    <p class="lead">Our end-to-end system has three stages: <strong>speech recognition</strong>, <strong>keyword-to-mode mapping</strong> (command routing), and <strong>motion generation</strong>, which differs for incremental jog commands versus waypoint-based stack and nut policies.</p>
+
+    <div class="media-wrap" style="margin-top: 1.25rem;">
+      <img src="./website_assets/flowchart.png" alt="Pipeline from microphone to speech recognition, routing, PID control, and simulation" loading="lazy" decoding="async">
+    </div>
 
     <!-- Pipeline diagram -->
     <div class="pipeline">
@@ -779,10 +821,10 @@
       <div class="step">
         <div class="step-num s1">1</div>
         <div class="step-body">
-          <h3>Speech to Text</h3>
-          <p>The most important and arguably most difficult part of the project was ensuring the proper integration of a working speech-to-text model. We use the <strong>Vosk API's <code>vosk-model-small-en-0.15</code> model</strong> to handle this task. At only <strong>40 MB</strong> and requiring just <strong>300 MB of RAM</strong>, it runs entirely on a consumer laptop alongside the physics simulation.</p>
-          <p>Raw microphone audio is read in ~0.25 s blocks. For each block we: downmix to mono → resample with polyphase resampling to 16 kHz (what Vosk expects) → peak-normalize float samples when they exceed ±1 → convert to 16-bit PCM with clipping to the valid range. Those PCM chunks are fed to Vosk's <code>KaldiRecognizer</code>.</p>
-          <p>Critically, we use <strong>SetGrammar</strong> to restrict the recognizer's vocabulary to only our command keywords. This dramatically improves reliability for short, single-word commands instead of open-ended transcription &mdash; the recognizer can't confuse "up" with "cup" if "cup" is not in the grammar.</p>
+          <h3>Speech Recognition</h3>
+          <p>We run <strong>Vosk</strong> locally on the CPU using a small English model (<code>vosk-model-small-en-us-0.15</code>). At about <strong>40 MB</strong> and roughly <strong>300 MB RAM</strong>, it runs alongside the MuJoCo simulation on a laptop.</p>
+          <p>Audio is captured with <strong>SoundDevice</strong>, read in ~0.25 s blocks at the device&rsquo;s native rate. Each block is downmixed to mono, resampled to 16 kHz with polyphase resampling, peak-normalized when float samples exceed &plusmn;1, then converted to 16-bit PCM with clipping. Chunks are passed to Vosk&rsquo;s <code>KaldiRecognizer</code>.</p>
+          <p>We call <strong>SetGrammar</strong> with a JSON list of allowed command strings so decoding is restricted to our vocabulary, which improves reliability for short keywords compared to open-ended dictation.</p>
           <div style="margin-top: 1rem;">
             <span class="tech-badge blue">Vosk</span>
             <span class="tech-badge blue">KaldiRecognizer</span>
@@ -797,10 +839,10 @@
       <div class="step">
         <div class="step-num s2">2</div>
         <div class="step-body">
-          <h3>Position Computation</h3>
-          <p>Once a keyword is recognized, we determine <em>where</em> the robot should move next. The command level determines how much autonomy is given:</p>
-          <p>For <strong>incremental commands</strong> like "up", we set the target to a small offset from the current end-effector position. For <strong>high-level commands</strong> like "grab cube", the robot searches the Robosuite environment's observation dictionary for the nearest cube object, then sets the target slightly above the top of that object. The full "stack" and "assemble" commands invoke predefined multi-phase waypoint policies.</p>
-          <p>Due to the latency of voice recognition, we discovered that <strong>continuous movement was impossible to control precisely</strong>. The solution: the robot moves only in <strong>discrete steps</strong>, traveling a few units in a direction before stopping and waiting for the next command. This trades raw efficiency for far finer user control.</p>
+          <h3>Command Routing</h3>
+          <p>Recognized text is matched against keyword sets depending on context (e.g. wait for <strong>start</strong>, then stack / grab / assemble / incremental jog words, or <strong>hover</strong> / <strong>place</strong> in segmented motion). This selects which controller runs: incremental teleop, segmented grasp&ndash;hover&ndash;place, or a full autonomous <strong>stack</strong> / <strong>assemble</strong> sequence.</p>
+          <p><strong>Incremental teleop:</strong> Commands like up, down, left, right, forward, back, clockwise, and counterclockwise do not set a Cartesian target relative to the current end-effector. They apply a fixed delta in world axes (e.g. +Z for &ldquo;up&rdquo;) of <strong>0.048 m</strong> per control step, clipped to <strong>&plusmn;0.14 m</strong> per axis, repeated for <strong>26 steps</strong> at the environment control rate (<strong>20 Hz</strong> in our scripts). Each spoken jog is a short burst of motion, intentionally discrete under speech latency.</p>
+          <p><strong>Waypoint stack and nut tasks:</strong> For <strong>stack</strong> / <strong>assemble</strong> and the grab&ndash;hover&ndash;place workflow, policies use observations <code>cubeA_pos</code> and <code>cubeB_pos</code> as grasp vs. place (or support) objects. For multi-layer stacking we assign those fields per layer to the appropriate pair. A PID controller tracks named waypoints. Segmented runs pause between grab, hover, and place until the next keyword, using the same geometry as the fully autonomous run.</p>
           <div style="margin-top: 1rem;">
             <span class="tech-badge purple">Waypoint Policies</span>
             <span class="tech-badge purple">Obs Dictionary Lookup</span>
@@ -882,6 +924,8 @@
         <div class="kw teleop"><code>"right"</code><small>+X end-effector</small></div>
         <div class="kw teleop"><code>"forward"</code><small>+Y end-effector</small></div>
         <div class="kw teleop"><code>"back"</code><small>−Y end-effector</small></div>
+        <div class="kw teleop"><code>"clockwise"</code><small>Yaw +</small></div>
+        <div class="kw teleop"><code>"counterclockwise"</code><small>Yaw −</small></div>
         <div class="kw teleop"><code>"open"</code><small>Open gripper</small></div>
         <div class="kw teleop"><code>"close"</code><small>Close gripper</small></div>
         <div class="kw sys"><code>"start"</code><small>Begin session</small></div>
@@ -895,52 +939,60 @@
 <section id="eval">
   <div class="container">
     <div class="sec-label">Evaluation</div>
-    <h2>Results: Two Hard Tasks, Two Successes</h2>
-    <p class="lead">We evaluated the robot on two canonical Robosuite tasks, designed to stress-test precision, dexterity, and spatial reasoning.</p>
+    <h2>Results and Success Criteria</h2>
+    <p class="lead">We defined six success criteria: for each of our two environments (multi-cube stacking and nuts &amp; pegs), we aimed to succeed at <strong>greater than 80%</strong> using each of the three motion styles (fully autonomous, segmented, incremental). In stacking, success meant stacking at least <strong>three</strong> cubes; in nuts &amp; pegs, successfully placing each nut on its peg. We ran <strong>10 trials per case</strong>.</p>
+
+    <table class="eval-table" style="margin-top: 1.5rem;">
+      <thead>
+        <tr>
+          <th>Motion style</th>
+          <th>Multi-cube</th>
+          <th>Nuts &amp; pegs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Fully autonomous</td>
+          <td><span class="num">100%</span></td>
+          <td><span class="num">100%</span></td>
+        </tr>
+        <tr>
+          <td>Segmented</td>
+          <td><span class="num">100%</span></td>
+          <td><span class="num">100%</span></td>
+        </tr>
+        <tr>
+          <td>Incremental</td>
+          <td><span class="num">90%</span></td>
+          <td><span class="num">80%</span></td>
+        </tr>
+      </tbody>
+    </table>
 
     <div class="grid-2" style="margin-top: 2.5rem;">
 
       <div class="result-card">
         <div class="result-card-header">
-          <div class="result-time green">✓ Success &mdash; 30 seconds</div>
-          <h3>Task 1: Multi-Cube Stacking</h3>
+          <div class="result-time green">Demo highlight &mdash; ~30 s stack</div>
+          <h3>Multi-Cube Stacking</h3>
         </div>
         <div class="result-card-body">
-          <p>To make the cube stacking task truly challenging, we stacked <strong>3 progressively smaller cubes</strong> on top of each other &mdash; testing the robot's ability to move precisely in all 3 spatial directions in a synchronized manner and grip objects of varying sizes.</p>
-          <p>The results were a resounding success. The robot completed the full stack in just <strong>30 seconds</strong>, neatly placing each cube on the one below. As a bonus, it then stacked a very large cube on top of the entire tower &mdash; a testament to the robustness and precision of the voice-controlled system.</p>
-          <div style="margin-top: 1rem;">
-            <span class="tech-badge green">3 cubes stacked</span>
-            <span class="tech-badge green">All 3 spatial axes</span>
-            <span class="tech-badge green">Gripper precision</span>
-          </div>
+          <p>Fully autonomous and segmented modes benefited from the same waypoint-style manipulation we built for earlier coursework: structured phases (hover, grasp, hover, place) are easier to tune and stabilize.</p>
+          <p><strong>Incremental</strong> was hardest: speech latency and bursty jog commands mean the robot does not stream continuous motion; the user must correct repeatedly. Small timing differences matter most in contact-heavy phases. We still stacked three cubes in <strong>9 of 10</strong> incremental trials.</p>
         </div>
       </div>
 
       <div class="result-card">
         <div class="result-card-header">
-          <div class="result-time blue">✓ Success &mdash; 51 seconds</div>
-          <h3>Task 2: Nut Assembly</h3>
+          <div class="result-time blue">Demo highlight &mdash; ~51 s assembly</div>
+          <h3>Nuts &amp; Pegs</h3>
         </div>
         <div class="result-card-body">
-          <p>The nut assembly task is <strong>considerably harder</strong>. The robot must: align precisely with a thin nut just centimeters above the table → grip it → rotate → align again with the peg → and drop it accurately onto the peg. Even a small misalignment causes the nut to miss entirely.</p>
-          <p>We succeeded in this task as well, completing it in <strong>51 seconds</strong>. Crucially, this task also required <strong>rotation control</strong> &mdash; using all axes of motion including yaw alignment with a separate rotation PID &mdash; showcasing the full capability of our 4-DoF voice-controlled system.</p>
-          <div style="margin-top: 1rem;">
-            <span class="tech-badge blue">Rotation control</span>
-            <span class="tech-badge blue">Sub-cm alignment</span>
-            <span class="tech-badge blue">All axes of motion</span>
-          </div>
+          <p>Nut assembly stresses precision and rotation. Incremental teleop reached <strong>8 of 10</strong> successes; the burst-style control and alignment demands of peg insertion made this mode the most variable.</p>
+          <p>Overall we <strong>met the 80% threshold for all six criteria</strong>. The limiting factor in incremental mode was less the grasp&ndash;place mechanics than the burst teleop interaction under recognition delay.</p>
         </div>
       </div>
 
-    </div>
-
-    <div class="media-grid">
-      <div class="media-wrap">
-        <img src="website_assets/BlockStack.png" alt="Robot successfully stacking three progressively smaller cubes">
-      </div>
-      <div class="media-wrap">
-        <img src="website_assets/nutAssemblyGif.gif" alt="Robot performing nut assembly task with rotation control">
-      </div>
     </div>
   </div>
 </section>
@@ -950,29 +1002,17 @@
   <div class="container">
     <div class="sec-label">Discussion</div>
     <h2>Challenges &amp; Lessons Learned</h2>
-    <p class="lead">Building a real-time voice-controlled robot surfaced several non-obvious engineering problems. Here's what we ran into and how we addressed each one.</p>
+    <p class="lead">The hardest part of the project was <strong>integrating Vosk and managing latency</strong>. Our initial plan was continuous motion, updating plans only when the user spoke; in practice, the model often reacted on the order of <strong>~2 seconds</strong> after a command, which is unacceptable for tight manipulation. We expect a much stronger GPU could cut inference latency and eventually support continuous action instead of discrete bursts; for now, discrete steps remain necessary.</p>
 
     <div class="challenge">
-      <h3>Warning: Speech Recognition Latency (~2 second delay)</h3>
-      <p>Our initial plan was to have the robot move <strong>continuously</strong>, only changing direction when the user issued a new voice command. This seemed like the most natural control paradigm. In practice, the model would only receive the command and change course nearly <strong>2 seconds</strong> after it was issued &mdash; a dealbreaker in a small, precise environment.</p>
-      <p>We tried two approaches to reduce this: switching from a hosted API to running the model locally, and trying different model sizes. Neither brought latency low enough for continuous control. We believe that with a much stronger GPU for inference, latency could be reduced drastically enough to enable continuous motion. For now, the system remains discrete.</p>
-    </div>
-
-    <div class="challenge">
-      <h3>Warning: Getting Speech-to-Text to Work Reliably</h3>
-      <p>General-purpose ASR models failed frequently on short single-word commands like "up" or "back", confusing them with phonetically similar words or background noise. The entire audio preprocessing pipeline &mdash; sample rate, buffer size, normalization, PCM conversion &mdash; required careful tuning before Vosk could produce reliable results.</p>
-      <p>The key breakthrough was <strong>SetGrammar</strong>: restricting Vosk's vocabulary to only our command words. This transformed recognition from unreliable to robust for our use case.</p>
-    </div>
-
-    <div class="challenge">
-      <h3>Warning: Running Models Locally</h3>
-      <p>Running a speech recognition model on a consumer laptop while simultaneously running a MuJoCo physics simulation was more resource-constrained than expected. Cloud ASR services offered better accuracy but added unacceptable round-trip latency. Vosk's <code>vosk-model-small-en-0.15</code> (40 MB, 300 MB RAM) was the sweet spot: capable enough with grammar constraints, lightweight enough not to starve the simulation.</p>
+      <h3>Incremental Teleop Under Speech Delay</h3>
+      <p>Because control arrives as short spoken steps, the system must map each recognized word to a small motion while tolerating misrecognitions and gaps between utterances. We tuned step size and clamped targets to stay precise and limit cumulative drift across repeated commands. We also kept behavior predictable when commands are late or out of order by avoiding runaway drift and using a consistent stop-and-wait cadence between jogs.</p>
+      <p>Reliable short-keyword recognition still depended on careful audio preprocessing and <strong>SetGrammar</strong>-style vocabulary restriction.</p>
     </div>
 
     <div class="challenge win">
-      <h3>Solution: Discrete Step Movement</h3>
-      <p>The key design insight that made everything work: <strong>each voice command moves the robot only a small, fixed increment</strong> instead of initiating continuous motion. Saying "up" moves the end-effector ~26 simulation steps in the +Z direction, then the robot stops and waits for the next command.</p>
-      <p>This turns a latency problem into a feature. Overshoot is bounded by the step size. There's no need for a separate "stop" command. The feedback loop &mdash; speak, observe, correct &mdash; is actually well-suited to the natural cadence of speech. We traded raw efficiency for dramatically improved controllability.</p>
+      <h3>Discrete Bursts as the Practical Design</h3>
+      <p>Each jog applies a fixed world-frame delta for a bounded number of steps at 20 Hz, then stops. That design trades throughput for controllability under latency and matches how users issue voice commands in practice.</p>
     </div>
 
     <h3 style="margin-top: 3rem; margin-bottom: 1.2rem; font-size: 1.3rem;">Future Directions</h3>
@@ -983,7 +1023,7 @@
       </div>
       <div class="future-card">
         <h3>Full 6-DoF Control</h3>
-        <p>Currently the robot has <strong>4 of 6 degrees of freedom</strong> &mdash; it lacks roll and pitch control. Adding these two axes would unlock a fully dexterous robot capable of far harder tasks, such as opening a door, turning a key, or manipulating objects at arbitrary orientations.</p>
+        <p>We built on Assignment 1&rsquo;s robot and environments: the arm currently has <strong>4 of 6</strong> degrees of freedom (no roll or pitch). Adding those axes would enable harder tasks such as opening a door or manipulating objects at arbitrary orientations.</p>
       </div>
     </div>
   </div>
@@ -1013,7 +1053,7 @@
 
     <div class="challenge" style="margin-top: 1.5rem; border-left-color: var(--text-muted);">
       <h3 style="color: var(--text-muted);">Note on AI Use</h3>
-      <p>AI was used to help create the website and assist in writing low-level command functions, with heavy oversight from the team. All core system design decisions, tuning, and evaluation were done by us.</p>
+      <p>AI assisted with creating the website, implementing low-level commands, and the incremental tele-op policy, with heavy oversight. Core design, tuning, and evaluation were done by the team.</p>
     </div>
   </div>
 </section>
