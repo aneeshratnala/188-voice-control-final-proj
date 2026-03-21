@@ -20,6 +20,8 @@ import os
 import re
 import struct
 import sys
+import threading
+import time
 from collections.abc import Callable
 from math import gcd
 from pathlib import Path
@@ -34,6 +36,7 @@ KEYWORDS_OPEN = frozenset({"start"})
 KEYWORDS_STACK_OR_GRAB = frozenset({"stack", "grab"})
 KEYWORDS_HOVER = frozenset({"hover"})
 KEYWORDS_PLACE = frozenset({"place"})
+KEYWORDS_STOP = frozenset({"stop"})
 
 
 def _debug() -> bool:
@@ -130,6 +133,14 @@ def _first_matched_keyword(text: str, keywords: frozenset[str]) -> str | None:
     return None
 
 
+def _exit_on_stop(matched: str) -> bool:
+    """If user said stop, print and terminate. Returns True if we exited."""
+    if matched == "stop":
+        print('Heard "stop" — ending episode and exiting.', flush=True)
+        sys.exit(0)
+    return False
+
+
 def wait_for_keywords(
     keywords: frozenset[str],
     *,
@@ -138,6 +149,7 @@ def wait_for_keywords(
     between_blocks: Callable[[], None] | None = None,
     model: object | None = None,
     return_matched_keyword: bool = False,
+    allow_stop: bool = True,
 ) -> object | tuple[object, str]:
     """
     Block until Vosk hears one of *keywords* (final or partial).
@@ -158,7 +170,11 @@ def wait_for_keywords(
     Returns
     -------
     The vosk ``Model``, or ``(model, matched_word)`` if *return_matched_keyword* is True.
+
+    If *allow_stop* is True, ``stop`` is always allowed and ends the program immediately.
     """
+    kw = keywords | KEYWORDS_STOP if allow_stop else keywords
+
     try:
         import sounddevice as sd
     except ImportError:
@@ -223,7 +239,7 @@ def wait_for_keywords(
         )
 
     rec = KaldiRecognizer(model, VOSK_SAMPLE_RATE)
-    kw_list = sorted(keywords)
+    kw_list = sorted(kw)
     try:
         rec.SetGrammar(json.dumps(kw_list))
         if dbg:
@@ -264,8 +280,9 @@ def wait_for_keywords(
                         text = (json.loads(rec.Result()).get("text") or "").strip()
                         if dbg and text:
                             print(f"[voice] final: {text!r}", flush=True)
-                        matched = _first_matched_keyword(text, keywords)
+                        matched = _first_matched_keyword(text, kw)
                         if matched is not None:
+                            _exit_on_stop(matched)
                             msg = heard_message or 'Heard "{word}" — starting motion.'
                             print(msg.replace("{word}", matched), flush=True)
                             if return_matched_keyword:
@@ -278,8 +295,9 @@ def wait_for_keywords(
                         if partial and partial != last_partial and dbg:
                             print(f"[voice] partial: {partial!r}", flush=True)
                             last_partial = partial
-                        matched = _first_matched_keyword(partial, keywords)
+                        matched = _first_matched_keyword(partial, kw)
                         if matched is not None:
+                            _exit_on_stop(matched)
                             msg = heard_message or 'Heard "{word}" — starting motion.'
                             print(msg.replace("{word}", matched), flush=True)
                             if return_matched_keyword:
@@ -294,12 +312,15 @@ def wait_for_keywords(
         raise
 
 
+_STOP_HINT = ' Say "stop" to quit anytime.'
+
+
 def wait_for_start() -> object:
     """Say **start** to proceed (loads Vosk model; returns it for the next voice step)."""
     return wait_for_keywords(
         KEYWORDS_OPEN,
         heard_message='Heard "start" — opening simulation.',
-        prompt='Say "start" to open the simulation, then wait for the window.',
+        prompt='Say "start" to open the simulation, then wait for the window.' + _STOP_HINT,
         between_blocks=None,
         model=None,
         return_matched_keyword=False,
@@ -315,7 +336,10 @@ def wait_for_stack_or_grab(model: object, *, between_blocks: Callable[[], None])
     _, cmd = wait_for_keywords(
         KEYWORDS_STACK_OR_GRAB,
         heard_message=None,
-        prompt='Say "stack" for one-shot stack, or "grab" to run grab → hover → place in steps.',
+        prompt=(
+            'Say "stack" for one-shot stack, or "grab" to run grab → hover → place in steps.'
+            + _STOP_HINT
+        ),
         between_blocks=between_blocks,
         model=model,
         return_matched_keyword=True,
@@ -328,7 +352,7 @@ def wait_for_hover(model: object, *, between_blocks: Callable[[], None]) -> None
     wait_for_keywords(
         KEYWORDS_HOVER,
         heard_message=None,
-        prompt='Say "hover" to move to the hover pose above the green block.',
+        prompt='Say "hover" to move to the hover pose above the green block.' + _STOP_HINT,
         between_blocks=between_blocks,
         model=model,
         return_matched_keyword=False,
@@ -340,11 +364,112 @@ def wait_for_place(model: object, *, between_blocks: Callable[[], None]) -> None
     wait_for_keywords(
         KEYWORDS_PLACE,
         heard_message=None,
-        prompt='Say "place" to lower and release on the green block.',
+        prompt='Say "place" to lower and release on the green block.' + _STOP_HINT,
         between_blocks=between_blocks,
         model=model,
         return_matched_keyword=False,
     )
+
+
+class StopMicMonitor:
+    """
+    Listens for **stop** on a background thread while the main thread runs the policy.
+
+    Call ``pause()`` before any ``wait_for_*`` that opens the mic on the main thread,
+    then ``resume()`` after. Call ``check()`` each control step to exit if stop was heard.
+    """
+
+    def __init__(self, model: object) -> None:
+        self._model = model
+        self._heard_stop = threading.Event()
+        self._listen = threading.Event()
+        self._shutdown = threading.Event()
+        self._th: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._th = threading.Thread(target=self._loop, daemon=True)
+        self._th.start()
+
+    def pause(self) -> None:
+        self._listen.clear()
+
+    def resume(self) -> None:
+        if not self._shutdown.is_set():
+            self._listen.set()
+
+    def check(self) -> None:
+        if self._heard_stop.is_set():
+            print('Heard "stop" — ending episode and exiting.', flush=True)
+            sys.exit(0)
+
+    def close(self) -> None:
+        self._shutdown.set()
+        self._listen.set()
+        if self._th is not None and self._th.is_alive():
+            self._th.join(timeout=3.0)
+
+    def _loop(self) -> None:
+        try:
+            import sounddevice as sd
+            from vosk import KaldiRecognizer
+        except ImportError:
+            return
+
+        while not self._shutdown.is_set():
+            if not self._listen.wait(timeout=0.15):
+                continue
+            if self._shutdown.is_set():
+                break
+
+            dev_arg = _device_index()
+            try:
+                dev_id = dev_arg if dev_arg is not None else sd.default.device[0]
+                info = sd.query_devices(dev_id, "input")
+                stream_sr = int(round(float(info["default_samplerate"])))
+                if not (8_000 <= stream_sr <= 192_000):
+                    stream_sr = 48_000
+                max_ch = int(info.get("max_input_channels", 1))
+                num_ch = 2 if max_ch >= 2 else 1
+            except Exception:
+                stream_sr = 48_000
+                num_ch = 1
+
+            native_frames = max(1024, int(round(BLOCK_DURATION_S * stream_sr)))
+            rec = KaldiRecognizer(self._model, VOSK_SAMPLE_RATE)
+            try:
+                rec.SetGrammar(json.dumps(["stop"]))
+            except Exception:
+                pass
+
+            try:
+                with sd.InputStream(
+                    device=dev_arg,
+                    channels=num_ch,
+                    samplerate=stream_sr,
+                    dtype="float32",
+                    latency="high",
+                ) as stream:
+                    while self._listen.is_set() and not self._shutdown.is_set():
+                        block, _ = stream.read(native_frames)
+                        pcm = _float_block_to_pcm16k(block, stream_sr)
+                        if len(pcm) < 2:
+                            continue
+                        if rec.AcceptWaveform(pcm):
+                            text = (json.loads(rec.Result()).get("text") or "").strip()
+                            if _first_matched_keyword(text, KEYWORDS_STOP):
+                                self._heard_stop.set()
+                                return
+                        else:
+                            partial = (
+                                json.loads(rec.PartialResult()).get("partial") or ""
+                            ).strip()
+                            if _first_matched_keyword(partial, KEYWORDS_STOP):
+                                self._heard_stop.set()
+                                return
+            except Exception as e:
+                if _debug():
+                    print(f"[voice] stop monitor: {e}", flush=True)
+                time.sleep(0.3)
 
 
 __all__ = [
@@ -352,6 +477,8 @@ __all__ = [
     "KEYWORDS_OPEN",
     "KEYWORDS_PLACE",
     "KEYWORDS_STACK_OR_GRAB",
+    "KEYWORDS_STOP",
+    "StopMicMonitor",
     "wait_for_keywords",
     "wait_for_hover",
     "wait_for_place",

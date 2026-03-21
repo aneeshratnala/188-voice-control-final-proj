@@ -3,6 +3,7 @@ import robosuite as suite
 from policies import *
 
 from voice_start import (
+    StopMicMonitor,
     wait_for_hover,
     wait_for_place,
     wait_for_stack_or_grab,
@@ -11,6 +12,9 @@ from voice_start import (
 
 # 1) Voice: open sim only after "start"
 vosk_model = wait_for_start()
+stop_monitor = StopMicMonitor(vosk_model)
+stop_monitor.start()
+stop_monitor.pause()
 
 # 2) One episode instance
 env = suite.make(
@@ -33,6 +37,7 @@ def _idle_while_listening() -> None:
 
 # 3) "stack" = full run | "grab" = grab → (voice) hover → (voice) place
 command = wait_for_stack_or_grab(vosk_model, between_blocks=_idle_while_listening)
+stop_monitor.resume()
 
 obs = obs_holder[0]
 segmented = command == "grab"
@@ -48,6 +53,7 @@ def _listen_with_policy() -> None:
 
 def _run_until_stack_done() -> None:
     while True:
+        stop_monitor.check()
         o = obs_holder[0]
         action = policy.get_action(o)
         obs_holder[0], reward, done, info = env.step(action)
@@ -59,20 +65,26 @@ def _run_until_stack_done() -> None:
 if segmented:
     # Grab: phases 0–1, then hold (phase 10) — no B motion yet
     while not policy.segment_grab_done(obs_holder[0]):
+        stop_monitor.check()
         o = obs_holder[0]
         obs_holder[0], _, _, _ = env.step(policy.get_action(o))
         env.render()
 
+    stop_monitor.pause()
     wait_for_hover(vosk_model, between_blocks=_listen_with_policy)
+    stop_monitor.resume()
     policy.begin_hover()
 
     # Hover: existing phase-2 waypoint above green cube, then hold (phase 11)
     while not policy.segment_hover_done(obs_holder[0]):
+        stop_monitor.check()
         o = obs_holder[0]
         obs_holder[0], _, _, _ = env.step(policy.get_action(o))
         env.render()
 
+    stop_monitor.pause()
     wait_for_place(vosk_model, between_blocks=_listen_with_policy)
+    stop_monitor.resume()
     policy.begin_place()
 
 # Place (segmented) or full stack: existing phase-3 place-down + release
