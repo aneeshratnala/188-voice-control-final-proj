@@ -6,18 +6,18 @@
   <title>Voice-Controlled Robot Simulation</title>
   <style>
     :root {
-      --bg: #0f1117;
-      --surface: #181b23;
-      --surface-alt: #1e222d;
-      --border: #2a2f3e;
-      --text: #e2e4ea;
-      --text-muted: #8b90a0;
-      --accent: #6c8cff;
-      --accent-dim: #4a62b3;
-      --accent-glow: rgba(108, 140, 255, 0.12);
-      --green: #4ade80;
-      --orange: #f59e0b;
-      --red: #f87171;
+      --bg: #0b0b0c;
+      --surface: #131314;
+      --surface-alt: #19191b;
+      --border: #2a2a2d;
+      --text: #ebebed;
+      --text-muted: #8e8e92;
+      --accent: #b8b8bd;
+      --accent-dim: #5c5c61;
+      --accent-glow: rgba(200, 200, 208, 0.07);
+      --green: #7d9a84;
+      --orange: #a8946e;
+      --red: #b89090;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -32,13 +32,13 @@
 
     .hero {
       position: relative;
-      min-height: 70vh;
+      min-height: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 4rem 2rem;
-      background: radial-gradient(ellipse at 50% 0%, rgba(108, 140, 255, 0.08) 0%, transparent 60%);
+      padding: 2rem 1.5rem;
+      background: radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.035) 0%, transparent 55%);
       border-bottom: 1px solid var(--border);
     }
 
@@ -63,7 +63,7 @@
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
     }
 
     .hero h1 {
@@ -81,6 +81,30 @@
       color: var(--text-muted);
       max-width: 600px;
       margin: 0 auto;
+    }
+
+    .hero-content > p + p { margin-top: 1rem; }
+
+    .hero-list {
+      text-align: left;
+      max-width: 520px;
+      margin: 0.65rem auto 0;
+      padding-left: 1.35rem;
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .hero-list + p { margin-top: 1.15rem; }
+
+    section .hero-list {
+      margin-left: 0;
+      margin-right: 0;
+      max-width: 38rem;
+    }
+
+    section .media-placeholder.video + p {
+      margin-top: 2rem;
     }
 
     .container {
@@ -209,7 +233,7 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background: #0a0c10;
+      background: #080809;
       border-radius: 12px;
     }
 
@@ -266,13 +290,13 @@
       border-radius: 12px;
       padding: 2rem;
       margin-top: 1.5rem;
-      border-left: 3px solid var(--orange);
+      border-left: 3px solid var(--accent-dim);
     }
 
-    .challenge-card h3 { color: var(--orange); }
+    .challenge-card h3 { color: var(--accent); }
 
-    .challenge-card.resolved { border-left-color: var(--green); }
-    .challenge-card.resolved h3 { color: var(--green); }
+    .challenge-card.resolved { border-left-color: var(--accent); }
+    .challenge-card.resolved h3 { color: var(--text); }
 
     .tech-badge {
       display: inline-block;
@@ -332,7 +356,7 @@
   <header class="hero">
     <div class="hero-content">
       <div class="hero-badge">CS 188 Final Project</div>
-      <h1>Voice-Controlled <span>Robot Simulation</span></h1>
+      <h1>Voice-Controlled <span>Robot</span></h1>
       <p>A voice-driven teleoperation system that lets users control a simulated Panda robot arm through natural speech commands, powered by offline speech recognition and real-time physics simulation.</p>
     </div>
   </header>
@@ -340,13 +364,23 @@
   <!-- Demo Video -->
   <section>
     <div class="container">
-      <div class="section-label">Demo</div>
-      <h2>See It in Action</h2>
-      <p class="lead">Watch the full system running end-to-end: from voice commands to robot motion in the MuJoCo simulation.</p>
+      <div class="section-label"></div>
+      <h2>Demo: See our voice control in action</h2>
 
       <div class="media-placeholder video">
         <video src="website_assets/DEMO_VIDEO.mov" controls playsinline preload="metadata" title="Voice-controlled robot demo recording"></video>
       </div>
+      <p>We have two main environments:</p>
+      <ol class="hero-list">
+        <li>Multi-cube stacking</li>
+        <li>Nuts and pegs</li>
+      </ol>
+      <p>Each environment supports three main motion types:</p>
+      <ol class="hero-list">
+        <li>Fully autonomous motion</li>
+        <li>Segmented autonomous motion</li>
+        <li>Incremental control</li>
+      </ol>
     </div>
   </section>
 
@@ -360,14 +394,10 @@
 
       <div class="media-row">
         <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-stack.png" alt="Block stacking"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image &mdash; Block stacking task</span>
+          <img src="website_assets/BlockStack.png" alt="Block stacking task">
         </div>
         <div class="media-placeholder">
-          <!-- Replace with: <img src="your-image-teleop.png" alt="Teleop mode"> -->
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
-          <span>Image &mdash; Incremental teleop mode</span>
+          <img src="website_assets/nutAssemblyGif.gif" alt="Incremental teleop mode">
         </div>
       </div>
     </div>
