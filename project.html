@@ -194,13 +194,22 @@
 
     .media-placeholder span { opacity: 0.7; }
 
-    .media-placeholder img,
-    .media-placeholder video {
+    .media-placeholder img {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+      border-radius: 12px;
+    }
+
+    .media-placeholder video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #0a0c10;
       border-radius: 12px;
     }
 
@@ -336,9 +345,7 @@
       <p class="lead">Watch the full system running end-to-end: from voice commands to robot motion in the MuJoCo simulation.</p>
 
       <div class="media-placeholder video">
-        <!-- Replace the comment below with: <video src="your-demo-video.mp4" controls></video> -->
-        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-        <span>Demo video &mdash; replace this placeholder with your video file</span>
+        <video src="website_assets/DEMO_VIDEO.mov" controls playsinline preload="metadata" title="Voice-controlled robot demo recording"></video>
       </div>
     </div>
   </section>
