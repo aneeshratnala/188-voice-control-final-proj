@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice-Controlled Robot Simulation</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #181b23;
+      --surface-alt: #1e222d;
+      --border: #2a2f3e;
+      --text: #e2e4ea;
+      --text-muted: #8b90a0;
+      --accent: #6c8cff;
+      --accent-dim: #4a62b3;
+      --accent-glow: rgba(108, 140, 255, 0.12);
+      --green: #4ade80;
+      --orange: #f59e0b;
+      --red: #f87171;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 70vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 4rem 2rem;
+      background: radial-gradient(ellipse at 50% 0%, rgba(108, 140, 255, 0.08) 0%, transparent 60%);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 30h60M30 0v60' stroke='%23ffffff' stroke-width='0.3' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+
+    .hero-content { position: relative; max-width: 800px; }
+
+    .hero-badge {
+      display: inline-block;
+      padding: 0.35rem 1rem;
+      border-radius: 999px;
+      background: var(--accent-glow);
+      border: 1px solid var(--accent-dim);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.8rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.2rem;
+    }
+
+    .hero h1 span { color: var(--accent); }
+
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    section {
+      padding: 5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-of-type { border-bottom: none; }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+    }
+
+    h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.2rem;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+
+    p + p { margin-top: 1rem; }
+
+    .lead { font-size: 1.05rem; color: var(--text-muted); }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.8rem;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: var(--accent-dim); }
+
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      margin-bottom: 1rem;
+      background: var(--accent-glow);
+      border: 1px solid var(--accent-dim);
+    }
+
+    .media-placeholder {
+      width: 100%;
+      min-height: 280px;
+      border-radius: 12px;
+      border: 2px dashed var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .media-placeholder.video { min-height: 380px; }
+
+    .media-placeholder svg {
+      width: 48px;
+      height: 48px;
+      stroke: var(--text-muted);
+      fill: none;
+      stroke-width: 1.5;
+      margin-bottom: 0.6rem;
+      opacity: 0.5;
+    }
+
+    .media-placeholder span { opacity: 0.7; }
+
+    .media-placeholder img,
+    .media-placeholder video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 12px;
+    }
+
+    .media-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      .media-row { grid-template-columns: 1fr; }
+    }
+
+    .arch-diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem;
+      margin-top: 2rem;
+      overflow-x: auto;
+    }
+
+    .arch-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+    }
+
+    .arch-node {
+      padding: 0.7rem 1.2rem;
+      border-radius: 8px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .arch-node.highlight {
+      border-color: var(--accent-dim);
+      background: var(--accent-glow);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .arch-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+    .challenge-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-top: 1.5rem;
+      border-left: 3px solid var(--orange);
+    }
+
+    .challenge-card h3 { color: var(--orange); }
+
+    .challenge-card.resolved { border-left-color: var(--green); }
+    .challenge-card.resolved h3 { color: var(--green); }
+
+    .tech-badge {
+      display: inline-block;
+      padding: 0.3rem 0.75rem;
+      border-radius: 6px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin: 0.25rem;
+    }
+
+    .tech-list { margin-top: 1.5rem; }
+
+    .keyword-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1.2rem;
+    }
+
+    .keyword {
+      text-align: center;
+      padding: 0.6rem;
+      border-radius: 8px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+    }
+
+    .keyword small {
+      display: block;
+      color: var(--text-muted);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.7rem;
+      margin-top: 0.2rem;
+    }
+
+    .team-section {
+      text-align: center;
+      padding: 4rem 0;
+    }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">CS 188 Final Project</div>
+      <h1>Voice-Controlled <span>Robot Simulation</span></h1>
+      <p>A voice-driven teleoperation system that lets users control a simulated Panda robot arm through natural speech commands, powered by offline speech recognition and real-time physics simulation.</p>
+    </div>
+  </header>
+
+  <!-- Demo Video -->
+  <section>
+    <div class="container">
+      <div class="section-label">Demo</div>
+      <h2>See It in Action</h2>
+      <p class="lead">Watch the full system running end-to-end: from voice commands to robot motion in the MuJoCo simulation.</p>
+
+      <div class="media-placeholder video">
+        <!-- Replace the comment below with: <video src="your-demo-video.mp4" controls></video> -->
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        <span>Demo video &mdash; replace this placeholder with your video file</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Overview -->
+  <section>
+    <div class="container">
+      <div class="section-label">Overview</div>
+      <h2>What We Built</h2>
+      <p>This project is a fully voice-controlled robot manipulation system built on top of <strong>Robosuite</strong> and <strong>MuJoCo</strong>. Instead of using a keyboard, mouse, or gamepad, the user speaks commands into a microphone and the robot responds in real time inside a physics simulation.</p>
+      <p>The system supports three distinct modes of operation: an autonomous block-stacking sequence, a voice-gated grab-hover-place pipeline where the user guides the robot through each phase, and an incremental teleoperation mode where spoken directional commands jog the end-effector in small steps.</p>
+
+      <div class="media-row">
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-stack.png" alt="Block stacking"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image &mdash; Block stacking task</span>
+        </div>
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-teleop.png" alt="Teleop mode"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image &mdash; Incremental teleop mode</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section>
+    <div class="container">
+      <div class="section-label">Architecture</div>
+      <h2>System Design</h2>
+      <p class="lead">The pipeline connects a microphone to a robot through four stages: audio capture, speech recognition, command dispatch, and physics-based control.</p>
+
+      <div class="arch-diagram">
+        <div class="arch-flow">
+          <div class="arch-node">Microphone</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node">SoundDevice</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node">Resample to 16 kHz</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node highlight">Vosk ASR</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node">Keyword</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node highlight">Policy Dispatch</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node">PID Controller</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node">7D Action</div>
+          <div class="arch-arrow">&rarr;</div>
+          <div class="arch-node highlight">Robosuite / MuJoCo</div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 2.5rem;">
+        <div>
+          <h3>Voice Pipeline</h3>
+          <p>Audio is captured through <strong>SoundDevice</strong>, resampled from the device's native sample rate to 16 kHz using SciPy's polyphase resampling, then fed into a <strong>Vosk</strong> recognizer configured with a restricted grammar of command keywords. This grammar constraint dramatically improves recognition accuracy by limiting the search space to only valid commands.</p>
+        </div>
+        <div>
+          <h3>Control Pipeline</h3>
+          <p>Recognized keywords are dispatched to the appropriate policy. Each policy computes 7-dimensional actions: three delta-position components, three axis-angle rotation components, and a gripper command. A PID controller (Kp=10, Ki=0.1, Kd=5) converts target positions into smooth delta commands that the Robosuite environment executes at 20 Hz.</p>
+        </div>
+      </div>
+
+      <div class="media-placeholder" style="margin-top: 2rem;">
+        <!-- Replace with: <img src="your-architecture-diagram.png" alt="Architecture diagram"> -->
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+        <span>Image &mdash; Detailed architecture diagram (optional)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modes -->
+  <section>
+    <div class="container">
+      <div class="section-label">Capabilities</div>
+      <h2>Operation Modes</h2>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">&#x1F4E6;</div>
+          <h3>Block Stacking</h3>
+          <p>Say <strong>"stack"</strong> and the robot autonomously executes a full pick-and-place sequence: hover above cube A, descend and grasp, lift to cube B, and place. Four phases driven by waypoint targets and PID control.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">&#x270B;</div>
+          <h3>Grab-Hover-Place</h3>
+          <p>A voice-gated pipeline triggered by <strong>"grab"</strong>. The robot grabs the object and waits. Say <strong>"hover"</strong> to move above the target, then <strong>"place"</strong> to set it down. Each phase requires explicit confirmation.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">&#x1F3AE;</div>
+          <h3>Incremental Teleop</h3>
+          <p>Fine-grained voice jogging. Commands like <strong>"up"</strong>, <strong>"left"</strong>, <strong>"forward"</strong>, <strong>"open"</strong>, and <strong>"close"</strong> each move the end-effector a small, fixed increment. Designed around the latency constraints of real-time speech recognition.</p>
+        </div>
+      </div>
+
+      <div class="media-row">
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-grab.png" alt="Grab phase"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image &mdash; Grab phase in action</span>
+        </div>
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-place.png" alt="Place phase"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image &mdash; Place phase in action</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Voice Commands -->
+  <section>
+    <div class="container">
+      <div class="section-label">Interface</div>
+      <h2>Voice Commands</h2>
+      <p class="lead">The system recognizes a focused set of keywords, using Vosk's grammar constraints to maximize accuracy.</p>
+
+      <div class="keyword-grid">
+        <div class="keyword">"start"<small>Begin session</small></div>
+        <div class="keyword">"stack"<small>Auto stack</small></div>
+        <div class="keyword">"grab"<small>Grasp object</small></div>
+        <div class="keyword">"hover"<small>Move above target</small></div>
+        <div class="keyword">"place"<small>Set down</small></div>
+        <div class="keyword">"up"<small>+Z jog</small></div>
+        <div class="keyword">"down"<small>&minus;Z jog</small></div>
+        <div class="keyword">"left"<small>&minus;X jog</small></div>
+        <div class="keyword">"right"<small>+X jog</small></div>
+        <div class="keyword">"forward"<small>+Y jog</small></div>
+        <div class="keyword">"back"<small>&minus;Y jog</small></div>
+        <div class="keyword">"open"<small>Open gripper</small></div>
+        <div class="keyword">"close"<small>Close gripper</small></div>
+        <div class="keyword">"stop"<small>Halt</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tech Stack -->
+  <section>
+    <div class="container">
+      <div class="section-label">Technology</div>
+      <h2>Tech Stack</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Simulation</h3>
+          <div class="tech-list">
+            <span class="tech-badge">Robosuite</span>
+            <span class="tech-badge">MuJoCo</span>
+            <span class="tech-badge">mjpython</span>
+            <span class="tech-badge">Panda Robot</span>
+          </div>
+          <p style="margin-top: 1rem;">Robosuite provides high-fidelity robot manipulation environments on top of the MuJoCo physics engine, with built-in tasks like block stacking and nut assembly.</p>
+        </div>
+        <div class="card">
+          <h3>Voice &amp; Audio</h3>
+          <div class="tech-list">
+            <span class="tech-badge">Vosk</span>
+            <span class="tech-badge">SoundDevice</span>
+            <span class="tech-badge">SciPy (resampling)</span>
+          </div>
+          <p style="margin-top: 1rem;">Vosk runs a Kaldi-based speech recognition model entirely offline. Audio from SoundDevice is resampled to 16 kHz and processed with a grammar-restricted recognizer for fast, accurate keyword detection.</p>
+        </div>
+        <div class="card">
+          <h3>Control</h3>
+          <div class="tech-list">
+            <span class="tech-badge">Custom PID</span>
+            <span class="tech-badge">NumPy</span>
+            <span class="tech-badge">SciPy Rotations</span>
+          </div>
+          <p style="margin-top: 1rem;">A tuned PID controller converts waypoint targets into smooth delta-position commands. Quaternion and rotation utilities from SciPy handle orientation math.</p>
+        </div>
+        <div class="card">
+          <h3>Language &amp; Tools</h3>
+          <div class="tech-list">
+            <span class="tech-badge">Python</span>
+            <span class="tech-badge">NumPy</span>
+            <span class="tech-badge">SciPy</span>
+          </div>
+          <p style="margin-top: 1rem;">The entire system is written in Python, leveraging NumPy for numerical operations and SciPy for signal processing and spatial transforms.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Challenges -->
+  <section>
+    <div class="container">
+      <div class="section-label">Challenges</div>
+      <h2>Challenges We Faced</h2>
+      <p class="lead">Building a real-time voice-controlled robot system introduced several non-obvious engineering challenges that shaped our final design.</p>
+
+      <div class="challenge-card">
+        <h3>Speech-to-Text Accuracy</h3>
+        <p>Getting a speech recognition model to reliably convert spoken commands into text was one of the hardest parts of the project. General-purpose ASR models would frequently misinterpret short, single-word commands like "up" or "back", confusing them with similar-sounding words or background noise. We experimented with multiple models and configurations before settling on Vosk with a tightly constrained grammar. By restricting the recognizer's vocabulary to only our valid command keywords, we dramatically reduced misrecognition. Even so, tuning the audio pipeline &mdash; getting the right sample rate, buffer size, and noise handling &mdash; took significant iteration.</p>
+      </div>
+
+      <div class="challenge-card">
+        <h3>Voice Recognition Latency</h3>
+        <p>Even after achieving acceptable accuracy, the latency of the speech-to-text pipeline was a major constraint. From the moment a user finishes speaking a command to when the recognized keyword is available to the control system, there is a noticeable delay. This delay comes from audio buffering, the recognition computation itself, and the inherent lag in detecting end-of-speech. For a robot control application, this latency made continuous, real-time motion impractical &mdash; by the time the system processed one command, the robot had already moved past where the user intended.</p>
+      </div>
+
+      <div class="challenge-card">
+        <h3>Running Models Locally</h3>
+        <p>We wanted the entire system to run locally without depending on cloud APIs, both for lower latency and to avoid network dependencies. Getting a speech recognition model to run efficiently on a local machine, while simultaneously running a physics simulation, was a real challenge. Cloud-based ASR services offered better accuracy but introduced unacceptable round-trip latency. Vosk's small English model struck the right balance: it runs locally with minimal resource usage while providing adequate accuracy for our constrained keyword vocabulary.</p>
+      </div>
+
+      <div class="challenge-card resolved">
+        <h3>Solution: Incremental Movement Commands</h3>
+        <p>The combination of recognition latency and accuracy constraints led us to a key design decision: <strong>each voice command moves the robot only a small, fixed increment</strong> rather than initiating continuous motion. In the incremental teleop mode, saying "up" moves the end-effector a short burst (~26 simulation steps) in the +Z direction and then stops. This discrete approach has several advantages: it's forgiving of latency since overshoot is bounded, it doesn't require a "stop" command to halt motion, and it naturally maps to the cadence of spoken commands. The user speaks, the robot nudges, and the user can observe and correct &mdash; a much more reliable feedback loop than trying to stream continuous commands through a high-latency voice pipeline.</p>
+      </div>
+
+      <div class="media-placeholder" style="margin-top: 2rem;">
+        <!-- Replace with: <img src="your-image-challenge.png" alt="Latency diagram or comparison"> -->
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+        <span>Image &mdash; Latency comparison or debugging screenshot</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Gallery -->
+  <section>
+    <div class="container">
+      <div class="section-label">Gallery</div>
+      <h2>Images &amp; Videos</h2>
+      <p class="lead">Screenshots, recordings, and diagrams from development and testing.</p>
+
+      <div class="media-row">
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-1.png" alt="Description"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image placeholder 1</span>
+        </div>
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-2.png" alt="Description"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image placeholder 2</span>
+        </div>
+      </div>
+
+      <div class="media-row">
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-3.png" alt="Description"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image placeholder 3</span>
+        </div>
+        <div class="media-placeholder">
+          <!-- Replace with: <img src="your-image-4.png" alt="Description"> -->
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+          <span>Image placeholder 4</span>
+        </div>
+      </div>
+
+      <div class="media-placeholder video">
+        <!-- Replace with: <video src="your-additional-video.mp4" controls></video> -->
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        <span>Additional video placeholder</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p>CS 188 &mdash; Final Project &mdash; Voice-Controlled Robot Simulation</p>
+    </div>
+  </footer>
+
+</body>
+</html>
