@@ -5,26 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voice-Controlled Robot Arm — CS 188 Final Project</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap');
 
     :root {
-      --bg:          #080b12;
-      --surface:     #0e1220;
-      --surface-2:   #141829;
-      --border:      #1e2438;
-      --border-hi:   #2e3a5e;
-      --text:        #e4e8f5;
-      --text-muted:  #7a85a0;
-      --blue:        #4f8ef7;
-      --blue-dim:    #2a4d96;
-      --blue-glow:   rgba(79,142,247,0.10);
-      --purple:      #a78bfa;
-      --purple-glow: rgba(167,139,250,0.10);
-      --green:       #34d399;
-      --green-glow:  rgba(52,211,153,0.10);
-      --orange:      #fb923c;
-      --orange-glow: rgba(251,146,60,0.10);
-      --yellow:      #fbbf24;
+      /* Formal grey palette */
+      --bg:          #f3f4f6;
+      --surface:     #ffffff;
+      --surface-2:   #f9fafb;
+      --border:      #d1d5db;
+      --border-hi:   #b9bec8;
+      --text:        #111827;
+      --text-muted:  #4b5563;
+      --blue:        #4b5563;
+      --blue-dim:    #9ca3af;
+      --blue-glow:   rgba(75,85,99,0.14);
+      --purple:      #374151;
+      --purple-glow: rgba(55,65,81,0.14);
+      --green:       #111827;
+      --green-glow:  rgba(17,24,39,0.10);
+      --orange:      #6b7280;
+      --orange-glow: rgba(107,114,128,0.14);
+      --yellow:      #6b7280;
     }
 
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
@@ -32,7 +33,7 @@
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: Georgia, "Times New Roman", Times, serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.75;
@@ -48,7 +49,7 @@
       align-items: center;
       justify-content: space-between;
       padding: 0.8rem 2.5rem;
-      background: rgba(8,11,18,0.85);
+      background: rgba(243,244,246,0.92);
       backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border);
     }
@@ -93,8 +94,8 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(79,142,247,0.14) 0%, transparent 65%),
-        radial-gradient(ellipse 50% 40% at 80% 50%, rgba(167,139,250,0.07) 0%, transparent 60%);
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(75,85,99,0.18) 0%, transparent 65%),
+        radial-gradient(ellipse 50% 40% at 80% 50%, rgba(55,65,81,0.10) 0%, transparent 60%);
       pointer-events: none;
     }
 
@@ -146,7 +147,7 @@
     }
 
     .hero h1 .grad {
-      background: linear-gradient(135deg, #4f8ef7 0%, #a78bfa 100%);
+      background: linear-gradient(135deg, #374151 0%, #6b7280 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -235,7 +236,7 @@
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: contain;
-      background: #040608;
+      background: var(--bg);
     }
 
     .media-grid {
@@ -272,9 +273,9 @@
     }
 
     .icon-blue   { background: var(--blue-glow);   border: 1px solid var(--blue-dim); }
-    .icon-purple { background: var(--purple-glow);  border: 1px solid #5b4e8a; }
-    .icon-green  { background: var(--green-glow);   border: 1px solid #1d6b52; }
-    .icon-orange { background: var(--orange-glow);  border: 1px solid #7a4518; }
+    .icon-purple { background: var(--purple-glow);  border: 1px solid var(--border-hi); }
+    .icon-green  { background: var(--green-glow);   border: 1px solid var(--border-hi); }
+    .icon-orange { background: var(--orange-glow);  border: 1px solid var(--border-hi); }
 
     /* ── STAT CARDS ────────────────────────── */
     .stat-grid {
@@ -413,8 +414,8 @@
     }
 
     .step-num.s1 { background: var(--blue-glow);   border: 1px solid var(--blue-dim);   color: var(--blue); }
-    .step-num.s2 { background: var(--purple-glow);  border: 1px solid #5b4e8a;           color: var(--purple); }
-    .step-num.s3 { background: var(--green-glow);   border: 1px solid #1d6b52;           color: var(--green); }
+    .step-num.s2 { background: var(--purple-glow);  border: 1px solid var(--border-hi);           color: var(--purple); }
+    .step-num.s3 { background: var(--green-glow);   border: 1px solid var(--border-hi);           color: var(--green); }
 
     .step-body { padding-top: 0.65rem; }
 
@@ -504,8 +505,8 @@
     }
 
     .tech-badge.blue   { border-color: var(--blue-dim);  color: var(--blue); }
-    .tech-badge.purple { border-color: #5b4e8a;           color: var(--purple); }
-    .tech-badge.green  { border-color: #1d6b52;           color: var(--green); }
+    .tech-badge.purple { border-color: var(--border-hi);           color: var(--purple); }
+    .tech-badge.green  { border-color: var(--border-hi);           color: var(--green); }
 
     /* ── RESULT CARDS ──────────────────────── */
     .result-card {
@@ -537,7 +538,7 @@
       margin-bottom: 0.75rem;
     }
 
-    .result-time.green { background: var(--green-glow); border: 1px solid #1d6b52; color: var(--green); }
+    .result-time.green { background: var(--green-glow); border: 1px solid var(--border-hi); color: var(--green); }
     .result-time.blue  { background: var(--blue-glow);  border: 1px solid var(--blue-dim); color: var(--blue); }
 
     /* ── PID TABLE ─────────────────────────── */
@@ -660,11 +661,11 @@
     <h1>A Fully <span class="grad">Voice-Controlled</span><br>Robot Arm</h1>
     <p class="hero-sub">We built a robot arm that listens. Using offline speech recognition, a custom PID controller, and Robosuite's physics engine, every movement is triggered by a spoken word &mdash; no keyboard required.</p>
     <div class="hero-pills">
-      <span class="pill">🎙️ Vosk Offline ASR</span>
-      <span class="pill">🤖 Robosuite + MuJoCo</span>
-      <span class="pill">📐 PID Control</span>
-      <span class="pill">📦 Multi-Cube Stacking</span>
-      <span class="pill">🔩 Nut Assembly</span>
+      <span class="pill">Vosk Offline ASR</span>
+      <span class="pill">Robosuite + MuJoCo</span>
+      <span class="pill">PID Control</span>
+      <span class="pill">Multi-Cube Stacking</span>
+      <span class="pill">Nut Assembly</span>
     </div>
   </div>
 </header>
@@ -712,17 +713,17 @@
 
     <div class="grid-3" style="margin-top: 1.75rem;">
       <div class="card">
-        <div class="card-icon icon-green">🤖</div>
+        <div class="card-icon icon-green">AUTO</div>
         <h3>Fully Autonomous</h3>
         <p>High-level commands like <strong>"stack"</strong> and <strong>"assemble"</strong> execute the entirety of a given task without any further input.</p>
       </div>
       <div class="card">
-        <div class="card-icon icon-purple">🎯</div>
+        <div class="card-icon icon-purple">SEG</div>
         <h3>Segmented Autonomous</h3>
         <p>Mid-level waypoint commands like <strong>"grab"</strong>, <strong>"hover"</strong>, and <strong>"place"</strong> let the user guide the robot through individual phases.</p>
       </div>
       <div class="card">
-        <div class="card-icon icon-blue">🕹️</div>
+        <div class="card-icon icon-blue">INCR</div>
         <h3>Incremental Control</h3>
         <p>Low-level positional commands such as <strong>"forward"</strong>, <strong>"back"</strong>, <strong>"up"</strong>, and <strong>"down"</strong> nudge the end-effector in small discrete steps.</p>
       </div>
@@ -740,32 +741,32 @@
     <div class="pipeline">
       <div class="pipeline-flow">
         <div class="pipe-node hi">
-          <div class="pipe-icon">🎙️</div>
+          <div class="pipe-icon">MIC</div>
           <div class="pipe-title">Microphone</div>
           <div class="pipe-sub">~0.25s blocks</div>
         </div>
         <div class="pipe-node hi">
-          <div class="pipe-icon">🔊</div>
+          <div class="pipe-icon">PRE</div>
           <div class="pipe-title">Audio Pre-process</div>
           <div class="pipe-sub">Mono → 16 kHz PCM</div>
         </div>
         <div class="pipe-node hi">
-          <div class="pipe-icon">🗣️</div>
+          <div class="pipe-icon">ASR</div>
           <div class="pipe-title">Vosk ASR</div>
           <div class="pipe-sub">Grammar-restricted</div>
         </div>
         <div class="pipe-node hi">
-          <div class="pipe-icon">🧠</div>
+          <div class="pipe-icon">CMD</div>
           <div class="pipe-title">Command Level</div>
           <div class="pipe-sub">Auto / Seg / Incr.</div>
         </div>
         <div class="pipe-node hi">
-          <div class="pipe-icon">📐</div>
+          <div class="pipe-icon">PID</div>
           <div class="pipe-title">PID Controller</div>
           <div class="pipe-sub">Kp=10 Ki=0.1 Kd=5</div>
         </div>
         <div class="pipe-node hi">
-          <div class="pipe-icon">🤖</div>
+          <div class="pipe-icon">SIM</div>
           <div class="pipe-title">MuJoCo Sim</div>
           <div class="pipe-sub">20 Hz, 7D action</div>
         </div>
@@ -952,24 +953,24 @@
     <p class="lead">Building a real-time voice-controlled robot surfaced several non-obvious engineering problems. Here's what we ran into and how we addressed each one.</p>
 
     <div class="challenge">
-      <h3>⚠️ Speech Recognition Latency (~2 second delay)</h3>
+      <h3>Warning: Speech Recognition Latency (~2 second delay)</h3>
       <p>Our initial plan was to have the robot move <strong>continuously</strong>, only changing direction when the user issued a new voice command. This seemed like the most natural control paradigm. In practice, the model would only receive the command and change course nearly <strong>2 seconds</strong> after it was issued &mdash; a dealbreaker in a small, precise environment.</p>
       <p>We tried two approaches to reduce this: switching from a hosted API to running the model locally, and trying different model sizes. Neither brought latency low enough for continuous control. We believe that with a much stronger GPU for inference, latency could be reduced drastically enough to enable continuous motion. For now, the system remains discrete.</p>
     </div>
 
     <div class="challenge">
-      <h3>⚠️ Getting Speech-to-Text to Work Reliably</h3>
+      <h3>Warning: Getting Speech-to-Text to Work Reliably</h3>
       <p>General-purpose ASR models failed frequently on short single-word commands like "up" or "back", confusing them with phonetically similar words or background noise. The entire audio preprocessing pipeline &mdash; sample rate, buffer size, normalization, PCM conversion &mdash; required careful tuning before Vosk could produce reliable results.</p>
       <p>The key breakthrough was <strong>SetGrammar</strong>: restricting Vosk's vocabulary to only our command words. This transformed recognition from unreliable to robust for our use case.</p>
     </div>
 
     <div class="challenge">
-      <h3>⚠️ Running Models Locally</h3>
+      <h3>Warning: Running Models Locally</h3>
       <p>Running a speech recognition model on a consumer laptop while simultaneously running a MuJoCo physics simulation was more resource-constrained than expected. Cloud ASR services offered better accuracy but added unacceptable round-trip latency. Vosk's <code>vosk-model-small-en-0.15</code> (40 MB, 300 MB RAM) was the sweet spot: capable enough with grammar constraints, lightweight enough not to starve the simulation.</p>
     </div>
 
     <div class="challenge win">
-      <h3>✅ Solution: Discrete Step Movement</h3>
+      <h3>Solution: Discrete Step Movement</h3>
       <p>The key design insight that made everything work: <strong>each voice command moves the robot only a small, fixed increment</strong> instead of initiating continuous motion. Saying "up" moves the end-effector ~26 simulation steps in the +Z direction, then the robot stops and waits for the next command.</p>
       <p>This turns a latency problem into a feature. Overshoot is bounded by the step size. There's no need for a separate "stop" command. The feedback loop &mdash; speak, observe, correct &mdash; is actually well-suited to the natural cadence of speech. We traded raw efficiency for dramatically improved controllability.</p>
     </div>
@@ -977,11 +978,11 @@
     <h3 style="margin-top: 3rem; margin-bottom: 1.2rem; font-size: 1.3rem;">Future Directions</h3>
     <div class="grid-2">
       <div class="future-card">
-        <h3>🧠 Vision-Language Models</h3>
+        <h3>Vision-Language Models</h3>
         <p>The most promising next step is inserting a <strong>vision-language model (VLM)</strong> between the speech-to-text output and the position planning stage. This would enable complex, natural language instructions instead of single keywords &mdash; commands like "grab the blue cube and put it on the red one" would become possible without hardcoded policies.</p>
       </div>
       <div class="future-card">
-        <h3>🔄 Full 6-DoF Control</h3>
+        <h3>Full 6-DoF Control</h3>
         <p>Currently the robot has <strong>4 of 6 degrees of freedom</strong> &mdash; it lacks roll and pitch control. Adding these two axes would unlock a fully dexterous robot capable of far harder tasks, such as opening a door, turning a key, or manipulating objects at arbitrary orientations.</p>
       </div>
     </div>
