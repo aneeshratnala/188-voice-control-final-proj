@@ -5,8 +5,8 @@ Typical flow
 ------------
 1. ``wait_for_start()`` — say **start** → returns a loaded ``Model`` (reuse for step 2).
 2. Build env, reset, create policy; pass a **between_blocks** callback that renders + zero-steps.
-3. ``wait_for_stack_grab_or_incremental`` — **stack**, **grab** (then **hover**, **place**), or
-   jog words (**up** … **close**) for end-effector incremental control.
+3. Stack demo: ``wait_for_stack_grab_or_incremental`` — **stack**, **grab** (then **hover**, **place**), or jog words.
+   Nut assembly: ``wait_for_assemble_grab_or_incremental`` — **assemble**, **grab** (then **hover**, **place**), or jog words.
 
 Setup: pip install vosk sounddevice numpy scipy; Vosk English model path (see VOSK_MODEL_PATH).
 
@@ -36,10 +36,24 @@ DEFAULT_SOUND_DEVICE_INDEX: int | None = None
 
 KEYWORDS_OPEN = frozenset({"start"})
 KEYWORDS_STACK_OR_GRAB = frozenset({"stack", "grab"})
+KEYWORDS_ASSEMBLE_OR_GRAB = frozenset({"assemble", "grab"})
 KEYWORDS_INCREMENTAL = frozenset(
-    {"up", "down", "left", "right", "forward", "back", "open", "close"}
+    {
+        "up",
+        "down",
+        "left",
+        "right",
+        "forward",
+        "back",
+        "open",
+        "close",
+        "counterclockwise",
+        "clockwise",
+    }
 )
 KEYWORDS_STACK_GRAB_INCREMENTAL = KEYWORDS_STACK_OR_GRAB | KEYWORDS_INCREMENTAL
+KEYWORDS_ASSEMBLE_GRAB_INCREMENTAL = KEYWORDS_ASSEMBLE_OR_GRAB | KEYWORDS_INCREMENTAL
+KEYWORDS_GRAB = frozenset({"grab"})
 KEYWORDS_HOVER = frozenset({"hover"})
 KEYWORDS_PLACE = frozenset({"place"})
 KEYWORDS_STOP = frozenset({"stop"})
@@ -137,6 +151,23 @@ def _first_matched_keyword(text: str, keywords: frozenset[str]) -> str | None:
         if w in keywords:
             return w
     return None
+
+
+def _match_keyword(text: str, keywords: frozenset[str]) -> str | None:
+    """
+    Match the longest multi-word phrase in *keywords* first (regex word boundaries),
+    then fall back to single-token matching. Needed so multi-word *keywords* are not
+    parsed as a single misleading token (e.g. a phrase ending in ``left``).
+    """
+    if not text or not text.strip():
+        return None
+    t = text.lower().strip()
+    phrases = sorted((w for w in keywords if " " in w), key=len, reverse=True)
+    for phrase in phrases:
+        pat = r"\b" + r"\s+".join(re.escape(p) for p in phrase.split()) + r"\b"
+        if re.search(pat, t):
+            return phrase
+    return _first_matched_keyword(t, keywords)
 
 
 def _exit_on_stop(matched: str) -> bool:
@@ -286,7 +317,7 @@ def wait_for_keywords(
                         text = (json.loads(rec.Result()).get("text") or "").strip()
                         if dbg and text:
                             print(f"[voice] final: {text!r}", flush=True)
-                        matched = _first_matched_keyword(text, kw)
+                        matched = _match_keyword(text, kw)
                         if matched is not None:
                             _exit_on_stop(matched)
                             msg = heard_message or 'Heard "{word}" — starting motion.'
@@ -301,7 +332,7 @@ def wait_for_keywords(
                         if partial and partial != last_partial and dbg:
                             print(f"[voice] partial: {partial!r}", flush=True)
                             last_partial = partial
-                        matched = _first_matched_keyword(partial, kw)
+                        matched = _match_keyword(partial, kw)
                         if matched is not None:
                             _exit_on_stop(matched)
                             msg = heard_message or 'Heard "{word}" — starting motion.'
@@ -357,16 +388,17 @@ def wait_for_stack_grab_or_incremental(
     model: object, *, between_blocks: Callable[[], None]
 ) -> str:
     """
-    Say **stack**, **grab**, or any incremental teleop word (**up** … **close**).
+    Say **stack**, **grab**, or any incremental teleop word (**up** … **close**, **counterclockwise** / **clockwise**).
 
-    Returns ``\"stack\"``, ``\"grab\"``, or the matched incremental keyword.
+    Returns ``\"stack\"``, ``\"grab\"``, or the matched incremental keyword / phrase.
     """
     _, cmd = wait_for_keywords(
         KEYWORDS_STACK_GRAB_INCREMENTAL,
         heard_message=None,
         prompt=(
             'Say "stack" (full stack), "grab" (grab → hover → place), or a jog command: '
-            '"up", "down", "left", "right", "forward", "back", "open", "close".'
+            '"up", "down", "left", "right", "forward", "back", "open", "close", '
+            '"counterclockwise", "clockwise".'
             + _STOP_HINT
         ),
         between_blocks=between_blocks,
@@ -374,6 +406,42 @@ def wait_for_stack_grab_or_incremental(
         return_matched_keyword=True,
     )
     return cmd
+
+
+def wait_for_assemble_grab_or_incremental(
+    model: object, *, between_blocks: Callable[[], None]
+) -> str:
+    """
+    Say **assemble** (full nut assembly), **grab** (grab → hover → place), or any incremental jog word.
+
+    Returns ``\"assemble\"``, ``\"grab\"``, or the matched incremental keyword.
+    """
+    _, cmd = wait_for_keywords(
+        KEYWORDS_ASSEMBLE_GRAB_INCREMENTAL,
+        heard_message=None,
+        prompt=(
+            'Say "assemble" (full nut assembly), "grab" (grab → hover → place), or a jog command: '
+            '"up", "down", "left", "right", "forward", "back", "open", "close", '
+            '"counterclockwise", "clockwise".'
+            + _STOP_HINT
+        ),
+        between_blocks=between_blocks,
+        model=model,
+        return_matched_keyword=True,
+    )
+    return cmd
+
+
+def wait_for_grab(model: object, *, between_blocks: Callable[[], None]) -> None:
+    """Say **grab** to start the next nut grab segment (e.g. round nut after square)."""
+    wait_for_keywords(
+        KEYWORDS_GRAB,
+        heard_message=None,
+        prompt='Say "grab" to start grab → hover → place for the next nut.' + _STOP_HINT,
+        between_blocks=between_blocks,
+        model=model,
+        return_matched_keyword=False,
+    )
 
 
 def wait_for_hover(model: object, *, between_blocks: Callable[[], None]) -> None:
@@ -600,7 +668,7 @@ class IncrementalMicMonitor:
                             continue
                         if rec.AcceptWaveform(pcm):
                             text = (json.loads(rec.Result()).get("text") or "").strip()
-                            matched = _first_matched_keyword(text, kw)
+                            matched = _match_keyword(text, kw)
                             if matched is not None:
                                 if matched == "stop":
                                     self._heard_stop.set()
@@ -610,7 +678,7 @@ class IncrementalMicMonitor:
                             partial = (
                                 json.loads(rec.PartialResult()).get("partial") or ""
                             ).strip()
-                            matched = _first_matched_keyword(partial, kw)
+                            matched = _match_keyword(partial, kw)
                             if matched is not None:
                                 if matched == "stop":
                                     self._heard_stop.set()
@@ -624,6 +692,9 @@ class IncrementalMicMonitor:
 
 __all__ = [
     "IncrementalMicMonitor",
+    "KEYWORDS_ASSEMBLE_GRAB_INCREMENTAL",
+    "KEYWORDS_ASSEMBLE_OR_GRAB",
+    "KEYWORDS_GRAB",
     "KEYWORDS_HOVER",
     "KEYWORDS_INCREMENTAL",
     "KEYWORDS_OPEN",
@@ -633,6 +704,8 @@ __all__ = [
     "KEYWORDS_STOP",
     "StopMicMonitor",
     "wait_for_keywords",
+    "wait_for_assemble_grab_or_incremental",
+    "wait_for_grab",
     "wait_for_hover",
     "wait_for_place",
     "wait_for_stack_grab_or_incremental",

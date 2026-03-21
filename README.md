@@ -6,7 +6,7 @@
 mjpython test.py
 ```
 
-`test.py`: **start** → **stack** (one-shot) or **grab** (then say **hover**, then **place**). Grab uses the same waypoints as the full stack, split across voice: grasp + hold → move to above-green hover → place-down (phase 3 only after **place**). See `voice_start.py`.
+`test.py`: **start** → **stack** (one-shot) or **grab** (then say **hover**, then **place**). After the red-on-green stack, say **stack** / **grab** again (or a jog word) to stack the extra blocks on the tower in order (blue → light → dark → gray). Grab uses the same waypoints as the full stack, split across voice. Simulation steps are throttled to real time (`1/control_freq`) so the viewer does not run faster than wall clock. See `voice_start.py`.
 
 ## Voice setup
 
@@ -30,4 +30,13 @@ Optional env vars and behavior are documented in the **module docstring** at the
 
 - `voice_start.py` — Vosk + blocking mic read (no callback queue), resample with **scipy.signal.resample_poly** to 16 kHz for Vosk.
 - `policies.py` — task policies.
-- `test.py` — env + policy loop.
+- `test.py` — `StackExtraCubes` + voice (**start** → **stack** / **grab** / incrementals). `StackPolicy` is unchanged; `test.py` remaps observations so later layers grasp a decor cube and place on the current tower top (`patch_stack_obs`). `stack_extra_env.StackExtraCubes` adds `decor_*_pos` observations and `check_upper_on_lower` for success after the first layer.
+- `stack_extra_env.py` — optional richer **Stack** scene: register `StackExtraCubes` (same `cubeA` / `cubeB` as stock `Stack`, plus extra colored blocks). Import before `suite.make`:
+
+```python
+import stack_extra_env
+import robosuite as suite
+env = suite.make("StackExtraCubes", robots="Panda", ...)
+```
+
+No `StackPolicy` changes required.

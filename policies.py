@@ -198,13 +198,31 @@ class StackPolicy(object):
 
 class IncrementalTeleopPolicy(object):
     """
-    Voice-driven small moves in the **end-effector frame**, plus gripper.
+    Voice-driven small translation in **fixed world axes** (table / viewer frame), plus gripper.
 
-    Keyword mapping (from ``robot0_eef_quat_site`` columns ``ex, ey, ez``): **forward** / **back**
-    = +``ey`` / −``ey``; **up** / **down** = −``ez`` / +``ez``; **left** / **right** = −``ex`` / +``ex``.
-    Each spatial command applies a short burst of clipped delta position; **open** / **close**
-    only actuate the gripper.
+    Translation is **not** tied to the end-effector orientation, so **counterclockwise** /
+    **clockwise** rotations do not change what **left** / **right** mean. Axes match common
+    robosuite table layouts: **up** / **down** = ±world **Z**; **forward** / **back** = ±**X**
+    (same line as nut retreat “back” = −X); **right** / **left** = ±**Y** (same as
+    ``DoorPolicy`` pull to the right = +Y).
+
+    **counterclockwise** / **clockwise** use yaw on ``action[5]`` in the same style as
+    ``NutAssemblyPolicy`` waypoint 4, but at **half** the per-step magnitude (``±0.05``)
+    so each command rotates less.
     """
+
+    # ~half of NutAssemblyPolicy waypoint 4 medium yaw clip (0.1 rad/step) for gentler teleop
+    _INCREMENTAL_YAW_PER_STEP = 0.05
+
+    # World-frame unit directions for OSC delta position (unchanged after EE rotation).
+    _WORLD_AXIS: dict[str, np.ndarray] = {
+        "up": np.array([0.0, 0.0, 1.0]),
+        "down": np.array([0.0, 0.0, -1.0]),
+        "right": np.array([0.0, 1.0, 0.0]),
+        "left": np.array([0.0, -1.0, 0.0]),
+        "forward": np.array([1.0, 0.0, 0.0]),
+        "back": np.array([-1.0, 0.0, 0.0]),
+    }
 
     def __init__(
         self,
@@ -212,64 +230,81 @@ class IncrementalTeleopPolicy(object):
         *,
         delta_per_step: float = 0.048,
         spatial_steps: int = 26,
+        rotation_steps: int = 26,
         grip_steps: int = 15,
     ):
         self.delta_per_step = float(delta_per_step)
         self.spatial_steps = int(spatial_steps)
+        self.rotation_steps = int(rotation_steps)
         self.grip_steps = int(grip_steps)
         self._pos_clip = 0.14
         self._spatial_cmd: str | None = None
         self._pos_steps = 0
+        self._rot_steps = 0
+        self._rot_yaw = 0.0
         self._grip_pulse_steps = 0
         self._grip_pulse_cmd = -1.0
         self._gripper_hold = -1.0
 
     def set_command(self, cmd: str) -> None:
         """Queue one burst for a recognized incremental keyword."""
-        c = cmd.lower().strip()
+        c = " ".join(cmd.lower().split())
         spatial = {"up", "down", "left", "right", "forward", "back"}
         if c in spatial:
+            self._rot_steps = 0
+            self._rot_yaw = 0.0
             self._spatial_cmd = c
             self._pos_steps = self.spatial_steps
+            return
+        if c == "counterclockwise":
+            self._spatial_cmd = None
+            self._pos_steps = 0
+            self._rot_yaw = -self._INCREMENTAL_YAW_PER_STEP
+            self._rot_steps = self.rotation_steps
+            return
+        if c == "clockwise":
+            self._spatial_cmd = None
+            self._pos_steps = 0
+            self._rot_yaw = self._INCREMENTAL_YAW_PER_STEP
+            self._rot_steps = self.rotation_steps
             return
         if c == "open":
             self._spatial_cmd = None
             self._pos_steps = 0
+            self._rot_steps = 0
+            self._rot_yaw = 0.0
             self._grip_pulse_cmd = -1.0
             self._grip_pulse_steps = self.grip_steps
             return
         if c == "close":
             self._spatial_cmd = None
             self._pos_steps = 0
+            self._rot_steps = 0
+            self._rot_yaw = 0.0
             self._grip_pulse_cmd = 1.0
             self._grip_pulse_steps = self.grip_steps
             return
 
-    def get_action(self, obs):
+    def get_action(self, _obs):
         action = np.zeros(7)
-        eef_quat = obs.get("robot0_eef_quat_site")
-        if eef_quat is not None and np.linalg.norm(eef_quat) > 1e-6:
-            R = T.quat2mat(eef_quat)
-            ex, ey, ez = R[:, 0], R[:, 1], R[:, 2]
-            dirs = {
-                "up": -ez,
-                "down": ez,
-                "right": ex,
-                "left": -ex,
-                "forward": ey,
-                "back": -ey,
-            }
-        else:
-            dirs = {
-                "up": np.array([-1.0, 0.0, 0.0]),
-                "down": np.array([1.0, 0.0, 0.0]),
-                "right": np.array([0.0, -1.0, 0.0]),
-                "left": np.array([0.0, 1.0, 0.0]),
-                "forward": np.array([0.0, 0.0, 1.0]),
-                "back": np.array([0.0, 0.0, -1.0]),
-            }
+        dirs = self._WORLD_AXIS
 
-        if self._pos_steps > 0 and self._spatial_cmd is not None:
+        # NutAssemblyPolicy waypoint 4: yaw-only (action[3:6] roll=0, pitch=0, yaw=control)
+        if self._rot_steps > 0:
+            action[:3] = 0.0
+            action[3] = 0.0
+            action[4] = 0.0
+            action[5] = float(
+                np.clip(
+                    self._rot_yaw,
+                    -self._INCREMENTAL_YAW_PER_STEP,
+                    self._INCREMENTAL_YAW_PER_STEP,
+                )
+            )
+            self._rot_steps -= 1
+            if self._rot_steps <= 0:
+                self._rot_yaw = 0.0
+        elif self._pos_steps > 0 and self._spatial_cmd is not None:
             d = dirs.get(self._spatial_cmd)
             if d is not None:
                 delta = np.asarray(d, dtype=np.float64).reshape(3) * self.delta_per_step
@@ -291,16 +326,28 @@ class IncrementalTeleopPolicy(object):
 
 class NutAssemblyPolicy(object):
     """
-    Policy for grabbing the nut handle.
-    Focus: Move to handle and grasp it.
+    Policy for nut assembly (approach handle, grasp, lift, align, place on peg).
+
+    **Full run** (``segmented=False``): waypoints 0→6 continuously, then round nut.
+
+    **Segmented** (``segmented=True``): voice **grab** runs 0→1→2 then hold (**waypoint 10**);
+    **hover** continues 3→4→5 then hold (**waypoint 11**); **place** runs **waypoint 6**
+    (release). After the square nut is placed, the env switches to the round nut and pauses at
+    **waypoint -2** until **grab** again; then ``start_next_grab_segment`` runs the same
+    grab→hover→place pattern for the round nut.
     """
-    def __init__(self, obs):
+    def __init__(self, obs, segmented=False):
         """
         Args:
             obs (dict): Includes 'SquareNut_pos', 'SquareNut_quat', etc.
+            segmented: If True, pause after grasp and after peg-hover until ``begin_hover`` /
+                ``begin_place`` (grab → hover → place voice flow).
         """
         # get current end-effector position
         eef_pos = obs["robot0_eef_pos"]
+        self.segmented = bool(segmented)
+        self._post_grasp_hold = None
+        self._hover_hold_target = None
         
         # save original gripper quaternion for alignment after lift
         self.home_q = obs["robot0_eef_quat_site"].copy()
@@ -451,11 +498,13 @@ class NutAssemblyPolicy(object):
         self.nut_type = "Round"
         self.target_peg_pos = self.PEG2_POS.copy()  # Round nut goes to Peg2
         
-        # Set waypoint to -1 (retreat) to avoid circular peg blocking the path
-        self.waypoint = -1
-        # Store current position for retreat calculation
         eef_pos = obs["robot0_eef_pos"]
-        self.retreat_start_pos = eef_pos[:3].copy()
+        # Full run: retreat (-1). Segmented: pause at -2 until voice **grab** starts round-nut segment.
+        if self.segmented:
+            self.waypoint = -2
+        else:
+            self.waypoint = -1
+            self.retreat_start_pos = eef_pos[:3].copy()
         
         # Reset all waypoint-specific state
         if hasattr(self, 'waypoint3_initial_pos'):
@@ -487,7 +536,52 @@ class NutAssemblyPolicy(object):
         
         print(f"  Switched to Round nut")
         print(f"  Target peg: Peg2 at [{self.target_peg_pos[0]:.4f}, {self.target_peg_pos[1]:.4f}, {self.target_peg_pos[2]:.4f}]")
-        print(f"  Starting at waypoint -1 (retreat) - will retreat 10cm backwards before approaching round nut")
+        if self.segmented:
+            print(
+                '  Segmented: say "grab" to run grab → hover → place on the round nut.',
+                flush=True,
+            )
+        else:
+            print(
+                "  Starting at waypoint -1 (retreat) - will retreat 10cm backwards before approaching round nut"
+            )
+
+    def start_next_grab_segment(self, obs) -> None:
+        """After voice **grab** at waypoint -2: start round-nut retreat (-1) and approach."""
+        if not self.segmented or self.waypoint != -2:
+            return
+        eef_pos = obs["robot0_eef_pos"]
+        self.retreat_start_pos = eef_pos[:3].copy()
+        self.waypoint = -1
+
+    def begin_hover(self) -> None:
+        """After voice **hover**: leave post-grasp hold and run waypoints 3→4→5 (lift, yaw, peg hover)."""
+        if self.segmented and self.waypoint == 10:
+            for attr in ("waypoint3_initial_pos", "waypoint3_final_pos"):
+                if hasattr(self, attr):
+                    delattr(self, attr)
+            self.waypoint = 3
+
+    def begin_place(self) -> None:
+        """After voice **place**: leave peg-hover hold and run waypoint 6 (release)."""
+        if self.segmented and self.waypoint == 11:
+            if self._hover_hold_target is not None:
+                self.waypoint5_final_pos = self._hover_hold_target.copy()
+            self.waypoint = 6
+
+    def segment_grab_done(self, obs) -> bool:
+        """Segmented: grasp stable at post-grasp hold (waypoint 10)."""
+        if not self.segmented or self.waypoint != 10 or self._post_grasp_hold is None:
+            return False
+        eef = obs["robot0_eef_pos"]
+        return np.linalg.norm(eef[:3] - self._post_grasp_hold) < 0.03
+
+    def segment_hover_done(self, obs) -> bool:
+        """Segmented: reached hold above peg (waypoint 11), before place."""
+        if not self.segmented or self.waypoint != 11 or self._hover_hold_target is None:
+            return False
+        eef = obs["robot0_eef_pos"]
+        return np.linalg.norm(eef[:3] - self._hover_hold_target) < 0.03
         
     def get_action(self, obs):
         """
@@ -498,6 +592,11 @@ class NutAssemblyPolicy(object):
         
         # get current end-effector position
         eef_pos = obs["robot0_eef_pos"]
+
+        if self.waypoint == -2:
+            # Segmented: between nuts — hold still, gripper open, until start_next_grab_segment
+            action[6] = -1.0
+            return action
         
         # get nut position and quaternion (use current_nut to track which nut we're working on)
         nut_pos_key = f"{self.current_nut}Nut_pos"
@@ -582,6 +681,20 @@ class NutAssemblyPolicy(object):
                 self.target_peg_pos[1] + nut_to_eef_offset[1] - self.WAYPOINT5_LEFT_OFFSET + self.WAYPOINT5_RIGHT_OFFSET,  # peg y + offset - left offset + right offset
                 target_z  # ensure nut is high enough above peg top
             ])
+        elif self.waypoint == 10:
+            # Segmented: hold at grasp pose (same target as waypoint 2) until begin_hover
+            target_pos = (
+                self._post_grasp_hold.copy()
+                if self._post_grasp_hold is not None
+                else eef_pos[:3]
+            )
+        elif self.waypoint == 11:
+            # Segmented: hold at peg-hover pose (waypoint 5 target) until begin_place
+            target_pos = (
+                self._hover_hold_target.copy()
+                if self._hover_hold_target is not None
+                else eef_pos[:3]
+            )
         elif self.waypoint == 6:
             # waypoint 6: release gripper - keep position fixed from waypoint 5
             if not hasattr(self, 'waypoint5_final_pos'):
@@ -717,6 +830,12 @@ class NutAssemblyPolicy(object):
         elif self.waypoint == 5:
             pos_reached = eef_distance < self.POS_THRESHOLD_WAYPOINT5  # use tighter threshold for precision
             pos_distance = eef_distance  # for debug output
+        elif self.waypoint == 10:
+            pos_reached = eef_distance < self.POS_THRESHOLD_WAYPOINT2
+            pos_distance = eef_distance
+        elif self.waypoint == 11:
+            pos_reached = eef_distance < self.POS_THRESHOLD_WAYPOINT5
+            pos_distance = eef_distance
         elif self.waypoint == 6:
             # in waypoint 6, we don't move position - only open gripper
             # Position is already reached (we're keeping the same position from waypoint 5)
@@ -774,6 +893,23 @@ class NutAssemblyPolicy(object):
             else:
                 # stop position movement once aligned
                 action[:3] = np.zeros(3)
+        elif self.waypoint == 10:
+            target_diff = np.linalg.norm(self.pos_controller.target - target_pos)
+            if target_diff > 0.001:
+                self.pos_controller.reset(target=target_pos)
+            pos_control = self.pos_controller.update(eef_pos[:3], self.dt)
+            pos_control = np.clip(pos_control, -0.1, 0.1)
+            action[:3] = pos_control
+        elif self.waypoint == 11:
+            target_diff = np.linalg.norm(self.pos_controller.target - target_pos)
+            if target_diff > 0.001:
+                self.pos_controller.reset(target=target_pos)
+            pos_control = self.pos_controller.update(eef_pos[:3], self.dt)
+            if pos_distance < 0.05:
+                pos_control = np.clip(pos_control, -0.05, 0.05)
+            else:
+                pos_control = np.clip(pos_control, -0.1, 0.1)
+            action[:3] = pos_control
         elif self.waypoint == 6:
             # waypoint 6: release gripper - no position movement
             # Keep position fixed from waypoint 5
@@ -851,6 +987,8 @@ class NutAssemblyPolicy(object):
         elif self.waypoint == 3 or self.waypoint == 4 or self.waypoint == 5:
             # in waypoint 3, 4, and 5, keep gripper closed (already gripping)
             action[6] = 1.0
+        elif self.waypoint == 10 or self.waypoint == 11:
+            action[6] = 1.0
         elif self.waypoint == 6:
             # in waypoint 6, open gripper to release nut
             action[6] = -1.0
@@ -923,22 +1061,29 @@ class NutAssemblyPolicy(object):
                 pos_reached_for_transition = pos_reached
             
             if pos_reached_for_transition and self.gripper_closed and self.grasp_wait > 15:  # wait for gripper to close
-                # once gripped, switch to lifting vertically to 15cm above peg top
-                print(f"\n>>> TRANSITIONING FROM WAYPOINT 2 TO WAYPOINT 3 <<<")
-                print(f"  Final eef_pos: [{eef_pos[0]:.4f}, {eef_pos[1]:.4f}, {eef_pos[2]:.4f}]")
-                print(f"  Final handle_pos: [{handle_pos[0]:.4f}, {handle_pos[1]:.4f}, {handle_pos[2]:.4f}]")
-                self.waypoint = 3
-                # Store initial x,y position for waypoint 3 (keep fixed, only move z)
-                self.waypoint3_initial_pos = eef_pos[:3].copy()
-                # reset position controller: lift vertically to 15cm above peg top (keep x,y same)
-                peg_top_z = self.target_peg_pos[2]  # peg top is at z = 0.85
-                target_z = peg_top_z + 0.15  # 15cm above peg top
-                target_pos_lift = self.waypoint3_initial_pos.copy()  # use fixed x,y position
-                target_pos_lift[2] = target_z  # only change z
-                self.pos_controller.reset(target=target_pos_lift)
-                print(f"  Stored waypoint3_initial_pos: [{self.waypoint3_initial_pos[0]:.4f}, {self.waypoint3_initial_pos[1]:.4f}, {self.waypoint3_initial_pos[2]:.4f}]")
-                print(f"  Peg top z: {peg_top_z:.4f}, Target z (peg_top + 0.15): {target_z:.4f}")
-                print(f"  New target_pos_lift (vertical raise): [{target_pos_lift[0]:.4f}, {target_pos_lift[1]:.4f}, {target_pos_lift[2]:.4f}]")
+                if self.segmented:
+                    print(f"\n>>> TRANSITIONING FROM WAYPOINT 2 TO SEGMENTED HOLD (10) <<<")
+                    self.waypoint = 10
+                    self._post_grasp_hold = handle_pos.copy()
+                    self._post_grasp_hold[2] -= self.GRIP_OFFSET_BELOW
+                    self.pos_controller.reset(target=self._post_grasp_hold.copy())
+                else:
+                    # once gripped, switch to lifting vertically to 15cm above peg top
+                    print(f"\n>>> TRANSITIONING FROM WAYPOINT 2 TO WAYPOINT 3 <<<")
+                    print(f"  Final eef_pos: [{eef_pos[0]:.4f}, {eef_pos[1]:.4f}, {eef_pos[2]:.4f}]")
+                    print(f"  Final handle_pos: [{handle_pos[0]:.4f}, {handle_pos[1]:.4f}, {handle_pos[2]:.4f}]")
+                    self.waypoint = 3
+                    # Store initial x,y position for waypoint 3 (keep fixed, only move z)
+                    self.waypoint3_initial_pos = eef_pos[:3].copy()
+                    # reset position controller: lift vertically to 15cm above peg top (keep x,y same)
+                    peg_top_z = self.target_peg_pos[2]  # peg top is at z = 0.85
+                    target_z = peg_top_z + 0.15  # 15cm above peg top
+                    target_pos_lift = self.waypoint3_initial_pos.copy()  # use fixed x,y position
+                    target_pos_lift[2] = target_z  # only change z
+                    self.pos_controller.reset(target=target_pos_lift)
+                    print(f"  Stored waypoint3_initial_pos: [{self.waypoint3_initial_pos[0]:.4f}, {self.waypoint3_initial_pos[1]:.4f}, {self.waypoint3_initial_pos[2]:.4f}]")
+                    print(f"  Peg top z: {peg_top_z:.4f}, Target z (peg_top + 0.15): {target_z:.4f}")
+                    print(f"  New target_pos_lift (vertical raise): [{target_pos_lift[0]:.4f}, {target_pos_lift[1]:.4f}, {target_pos_lift[2]:.4f}]")
                 self._waypoint2_transition_debug = 0  # reset counter
         # advance from waypoint 3 to waypoint 4 when position is reached (lifted to 15cm above peg top)
         elif self.waypoint == 3:
@@ -1030,14 +1175,19 @@ class NutAssemblyPolicy(object):
                 print(f"  target_pos: [{target_pos[0]:.4f}, {target_pos[1]:.4f}, {target_pos[2]:.4f}]")
             
             if pos_reached:
-                # once positioned above peg center, switch to releasing gripper
-                print(f"\n>>> TRANSITIONING FROM WAYPOINT 5 TO WAYPOINT 6 <<<")
                 print(f"  Final eef_pos: [{eef_pos[0]:.4f}, {eef_pos[1]:.4f}, {eef_pos[2]:.4f}]")
                 self.waypoint5_final_pos = eef_pos[:3].copy()  # store position for waypoint 6
-                
-                self.waypoint = 6
-                print(f"  Stored waypoint5_final_pos: [{self.waypoint5_final_pos[0]:.4f}, {self.waypoint5_final_pos[1]:.4f}, {self.waypoint5_final_pos[2]:.4f}]")
-                print(f"  Opening gripper to release nut")
+                if self.segmented:
+                    print(f"\n>>> TRANSITIONING FROM WAYPOINT 5 TO SEGMENTED HOLD (11) <<<")
+                    self._hover_hold_target = target_pos.copy()
+                    self.waypoint = 11
+                    self.pos_controller.reset(target=self._hover_hold_target.copy())
+                else:
+                    # once positioned above peg center, switch to releasing gripper
+                    print(f"\n>>> TRANSITIONING FROM WAYPOINT 5 TO WAYPOINT 6 <<<")
+                    self.waypoint = 6
+                    print(f"  Stored waypoint5_final_pos: [{self.waypoint5_final_pos[0]:.4f}, {self.waypoint5_final_pos[1]:.4f}, {self.waypoint5_final_pos[2]:.4f}]")
+                    print(f"  Opening gripper to release nut")
                 self._waypoint5_transition_debug = 0  # reset counter
 
         # debug output
